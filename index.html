@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>실시간 호가창 · COINONE / UPBIT / BITHUMB</title>
+<style>
+:root {
+  --bg:    #090d1a;
+  --bg2:   #111827;
+  --sep:   rgba(255,255,255,.07);
+  --text:  #ffffff;
+  --text2: #94a3b8;
+  --text3: #64748b;
+  --ask:   #3b82f6;
+  --bid:   #ef4444;
+  --sumh:  68px;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body {
+  background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Noto Sans KR',sans-serif;
+  min-height:100vh; overflow-x:hidden;
+}
+#bg-canvas { position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.03; }
+
+/* ── SUMMARY BAR ── */
+.sum-bar {
+  position:fixed; top:0; left:0; right:0; height:var(--sumh);
+  background:rgba(7,10,20,.98);
+  backdrop-filter:blur(20px) saturate(180%);
+  border-bottom:1px solid var(--sep);
+  z-index:200;
+  display:flex; flex-direction:column; justify-content:center;
+  padding:0;
+}
+/* USDT row — subtle teal tint */
+.sum-row-USDT {
+  display:flex; align-items:center; flex:1;
+  background:rgba(38,161,123,.065);
+  padding:0 16px; gap:0;
+  border-bottom:1px solid rgba(255,255,255,.04);
+}
+/* USDC row — subtle blue tint */
+.sum-row-USDC {
+  display:flex; align-items:center; flex:1;
+  background:rgba(39,117,202,.065);
+  padding:0 16px; gap:0;
+}
+.sum-ctag {
+  font-size:10px; font-weight:700; letter-spacing:.7px; color:var(--text3);
+  min-width:42px; flex-shrink:0; text-transform:uppercase;
+}
+.sum-vl { width:1px; height:13px; background:rgba(255,255,255,.1); margin:0 10px; flex-shrink:0; }
+.sum-cell { display:flex; align-items:center; gap:5px; }
+.sum-exn  { font-size:9px; font-weight:700; color:var(--text3); min-width:50px; flex-shrink:0; letter-spacing:.4px; }
+.sum-bv   { font-size:11.5px; font-weight:700; color:var(--bid); font-variant-numeric:tabular-nums; }
+.sum-sep  { font-size:11.5px; color:var(--text3); font-weight:400; margin:0 1px; }
+.sum-av   { font-size:11.5px; font-weight:700; color:var(--ask); font-variant-numeric:tabular-nums; }
+/* Clock in the bar */
+.sum-clock {
+  margin-left:auto; font-size:11px; font-weight:600; color:var(--text3);
+  font-variant-numeric:tabular-nums; letter-spacing:.3px; flex-shrink:0;
+  padding-right:2px;
+}
+
+/* ── APP ── */
+.app {
+  position:relative; z-index:1;
+  display:flex; min-height:100vh;
+  padding-top:var(--sumh);
+}
+
+/* ── SIDEBAR ── */
+.sidebar {
+  width:142px; flex-shrink:0;
+  background:rgba(14,20,34,.92);
+  backdrop-filter:blur(28px);
+  border-right:1px solid var(--sep);
+  display:flex; flex-direction:column;
+  position:sticky; top:var(--sumh);
+  height:calc(100vh - var(--sumh));
+  padding:14px 0 20px; z-index:10;
+}
+.brand {
+  padding:0 13px 14px;
+  border-bottom:1px solid var(--sep); margin-bottom:14px;
+}
+.brand-logo {
+  width:30px; height:30px; border-radius:7px;
+  background:linear-gradient(135deg,#3b82f6,#06b6d4);
+  display:flex; align-items:center; justify-content:center;
+  font-size:14px; font-weight:800; color:#fff; margin-bottom:7px;
+}
+.brand-text { font-size:12px; font-weight:700; }
+.brand-sub  { font-size:9px; color:var(--text3); margin-top:2px; }
+.sb-sec { padding:0 13px 6px; font-size:9px; font-weight:600; color:var(--text3);
+          text-transform:uppercase; letter-spacing:1px; }
+.exch-list { display:flex; flex-direction:column; gap:3px; padding:0 7px; }
+.exch-btn {
+  display:flex; align-items:center; gap:8px;
+  padding:9px 10px; border-radius:8px;
+  border:1px solid transparent; background:transparent; color:var(--text2);
+  cursor:pointer; text-align:left; width:100%;
+  transition:background .15s, color .15s, border-color .15s;
+}
+.exch-btn:hover { background:rgba(255,255,255,.05); color:var(--text); }
+.exch-btn.active {
+  background:rgba(59,130,246,.13); color:#60a5fa;
+  border-color:rgba(59,130,246,.28);
+}
+.exch-logo-wrap { width:22px; height:22px; flex-shrink:0; border-radius:5px; overflow:hidden; }
+.exch-dot {
+  width:6px; height:6px; border-radius:50%;
+  background:#1e293b; flex-shrink:0; transition:background .3s;
+  margin-left:auto;
+}
+.exch-dot.live       { background:#22c55e; box-shadow:0 0 5px rgba(34,197,94,.5); }
+.exch-dot.connecting { background:#f59e0b; animation:blink .7s infinite; }
+.exch-dot.error,
+.exch-dot.disconnected { background:#ef4444; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+.exch-nm { font-size:11.5px; font-weight:700; letter-spacing:.2px; }
+.exch-sb { font-size:8.5px; color:var(--text3); margin-top:1px; }
+.exch-btn.active .exch-sb { color:rgba(96,165,250,.6); }
+
+/* ── MAIN ── */
+.main { flex:1; min-width:0; padding:16px 16px 36px; }
+.main-hdr {
+  display:flex; justify-content:space-between; align-items:center;
+  margin-bottom:13px;
+}
+.main-title { font-size:16px; font-weight:700; letter-spacing:.3px; }
+.main-sub   { font-size:10.5px; color:var(--text3); margin-top:2px; }
+.hdr-right  { display:flex; align-items:center; gap:8px; }
+.badge {
+  display:flex; align-items:center; gap:5px;
+  background:rgba(255,255,255,.04); border:1px solid var(--sep);
+  border-radius:7px; padding:4px 10px;
+  font-size:11px; color:var(--text2); flex-shrink:0;
+}
+.dot { width:5px; height:5px; border-radius:50%; background:#1e293b; }
+.dot.live       { background:#22c55e; }
+.dot.connecting { background:#f59e0b; animation:blink .7s infinite; }
+.dot.error,.dot.disconnected { background:#ef4444; }
+
+/* ── OB GRID ── */
+.ob-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+
+/* ── OB CARD ── */
+.ob-card {
+  background:var(--bg2); border:1px solid var(--sep);
+  border-radius:10px; overflow:hidden;
+}
+.ob-chdr {
+  display:flex; align-items:center; gap:9px;
+  padding:10px 13px 9px;
+  background:rgba(20,28,46,.7);
+  border-bottom:1px solid var(--sep);
+}
+.ob-cico   { width:26px; height:26px; flex-shrink:0; }
+.ob-cname  { font-size:13px; font-weight:700; }
+.ob-csub   { font-size:9px; color:var(--text3); margin-top:1px; }
+
+/* Section headers */
+.sec-hdr {
+  display:grid; grid-template-columns:1fr 1fr;
+  padding:4px 13px;
+  font-size:8.5px; font-weight:600; color:var(--text3);
+  text-transform:uppercase; letter-spacing:.6px;
+  background:#0c1220;
+}
+.sec-hdr .sh-l { text-align:left; }
+.sec-hdr .sh-r { text-align:right; }
+
+/* Ask / Bid rows — IDENTICAL layout */
+.ob-asks { background:#090d1a; }
+.ob-bids { background:#090d1a; }
+.ob-row {
+  display:grid;
+  grid-template-columns:1fr 1fr;   /* price left | amount right */
+  height:30px; align-items:center;
+  padding:0 13px; position:relative; overflow:hidden;
+  transition:background .07s;
+}
+.ob-row:hover { background:rgba(255,255,255,.025); }
+.ob-row.cur-price {
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.6);
+  z-index:1;
+}
+/* depth bar — always from the right, same for ask and bid */
+.dbar {
+  position:absolute; top:3px; bottom:3px; right:0;
+  border-radius:2px;
+  pointer-events:none;
+  transition:width .32s cubic-bezier(.4,0,.2,1);
+}
+.ob-asks .dbar { background:rgba(59,130,246,.15); }
+.ob-bids .dbar { background:rgba(239,68,68,.15); }
+/* price cell */
+.rprc {
+  font-size:12px; font-weight:600; font-variant-numeric:tabular-nums;
+  text-align:left; position:relative; z-index:1; letter-spacing:.2px;
+}
+.ob-asks .rprc { color:var(--ask); }
+.ob-bids .rprc { color:var(--bid); }
+/* amount cell */
+.ramt {
+  font-size:10.5px; font-variant-numeric:tabular-nums;
+  color:var(--text3); text-align:right;
+  position:relative; z-index:1;
+}
+
+/* Mid section */
+.ob-mid {
+  display:flex; flex-direction:column; align-items:center;
+  padding:7px 13px;
+  background:rgba(255,255,255,.022);
+  border-top:1px solid var(--sep);
+  border-bottom:1px solid var(--sep);
+  gap:2px;
+}
+.mid-row1 { display:flex; align-items:center; gap:7px; }
+.mid-lbl   { font-size:8.5px; font-weight:600; color:var(--text3); text-transform:uppercase; letter-spacing:.5px; }
+.mid-price { font-size:14px; font-weight:700; font-variant-numeric:tabular-nums; }
+.mid-vol   { font-size:9.5px; color:var(--text3); font-variant-numeric:tabular-nums; letter-spacing:.2px; }
+
+/* ── MOBILE ── */
+@media (max-width:700px) {
+  :root { --sumh:84px; }
+  .app { flex-direction:column; }
+  .sidebar {
+    width:100%; height:auto; position:static;
+    border-right:none; border-bottom:1px solid var(--sep);
+    padding:8px 0 0;
+  }
+  .brand { display:none; }
+  .sb-sec { display:none; }
+  .exch-list { flex-direction:row; padding:0 8px 10px; gap:6px; }
+  .exch-btn  { padding:7px 11px; border-radius:999px; }
+  .exch-sb   { display:none; }
+  .main { padding:10px 10px 30px; }
+  .ob-grid { grid-template-columns:1fr; }
+  .sum-row-USDT,.sum-row-USDC { padding:0 10px; }
+}
+</style>
+</head>
+<body>
+<canvas id="bg-canvas"></canvas>
+
+<!-- SUMMARY BAR -->
+<div class="sum-bar">
+  <div class="sum-row-USDT" id="sum-USDT"></div>
+  <div class="sum-row-USDC" id="sum-USDC"></div>
+</div>
+
+<!-- APP -->
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">◈</div>
+      <div class="brand-text">실시간 호가</div>
+      <div class="brand-sub">Multi Exchange</div>
+    </div>
+    <div class="sb-sec">거래소</div>
+    <div class="exch-list" id="exch-list"></div>
+  </aside>
+
+  <main class="main">
+    <div class="main-hdr">
+      <div>
+        <div class="main-title" id="main-title">COINONE</div>
+        <div class="main-sub">KRW Market · USDC / USDT</div>
+      </div>
+      <div class="hdr-right">
+        <div class="badge">
+          <div class="dot connecting" id="main-dot"></div>
+          <span id="main-lbl">연결 중...</span>
+        </div>
+      </div>
+    </div>
+    <div class="ob-grid">
+      <div class="ob-card" id="card-USDC"></div>
+      <div class="ob-card" id="card-USDT"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+// ════════════════════════════════════════════════
+// DEFINITIONS — order: COINONE, UPBIT, BITHUMB
+// ════════════════════════════════════════════════
+const EXCH_ORDER = ['coinone','upbit','bithumb'];
+
+const EXCH_DEF = {
+  coinone: {
+    label:'COINONE', sub:'코인원 KRW',
+    wsUrl:'wss://stream.coinone.co.kr',
+    logoBg:'#1a3a8f', logoFg:'#60a5fa', letter:'C'
+  },
+  upbit: {
+    label:'UPBIT',   sub:'업비트 KRW',
+    wsUrl:'wss://api.upbit.com/websocket/v1',
+    logoBg:'#0042a8', logoFg:'#93c5fd', letter:'U'
+  },
+  bithumb: {
+    label:'BITHUMB', sub:'빗썸 KRW',
+    rest:true,
+    logoBg:'#7a4600', logoFg:'#fbbf24', letter:'B'
+  }
+};
+
+// Official-color coin definitions
+const COIN_DEF = {
+  USDT: { label:'USDT', sub:'Tether USD',  mainColor:'#26A17B', darkColor:'#1a6e53' },
+  USDC: { label:'USDC', sub:'USD Coin',    mainColor:'#2775CA', darkColor:'#1a4f8f' }
+};
+
+const ASK_ROWS = 5;
+const BID_ROWS = 5;
+
+// ════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════
+const OB = {
+  coinone: { USDT:null, USDC:null },
+  upbit:   { USDT:null, USDC:null },
+  bithumb: { USDT:null, USDC:null }
+};
+const LAST_PRICE = {
+  coinone: { USDT:null, USDC:null },
+  upbit:   { USDT:null, USDC:null },
+  bithumb: { USDT:null, USDC:null }
+};
+const VOL24 = {
+  coinone: { USDT:null, USDC:null },
+  upbit:   { USDT:null, USDC:null },
+  bithumb: { USDT:null, USDC:null }
+};
+
+const WS_MAP = { coinone:null, upbit:null };
+const STATUS = { coinone:'connecting', upbit:'connecting', bithumb:'connecting' };
+const RETRY  = { coinone:1500, upbit:1500 };
+const RTIMER = { coinone:null, upbit:null };
+const PTIMER = { coinone:null, upbit:null };
+let bithumbTimer = null;
+
+let currentExchange = 'coinone';
+
+const $   = id => document.getElementById(id);
+const fmt = v  => Number(v).toLocaleString('ko-KR');
+// Full number format — no 만/억 abbreviation
+const fmtAmt = n => {
+  n = Math.round(Number(n));
+  return isNaN(n) ? '—' : n.toLocaleString('ko-KR');
+};
+
+// ════════════════════════════════════════════════
+// PIXEL BACKGROUND
+// ════════════════════════════════════════════════
+const SPRITES = {
+  coin:    [[0,0,1,1,1,1,0,0],[0,1,1,0,0,1,1,0],[1,1,0,1,1,0,1,1],[1,0,1,1,1,1,0,1],[1,0,1,1,1,1,0,1],[1,1,0,1,1,0,1,1],[0,1,1,0,0,1,1,0],[0,0,1,1,1,1,0,0]],
+  diamond: [[0,0,1,1,0,0],[0,1,1,1,1,0],[1,1,1,1,1,1],[0,1,1,1,1,0],[0,0,1,1,0,0]],
+  bars:    [[0,0,0,1,0,1],[0,0,0,1,0,1],[0,1,0,1,0,1],[0,1,0,1,1,1],[1,1,1,1,1,1]],
+};
+function drawBg() {
+  const cv = $('bg-canvas');
+  const W = cv.width = window.innerWidth, H = cv.height = window.innerHeight;
+  const ctx = cv.getContext('2d');
+  const sps = Object.values(SPRITES);
+  const cols = ['#3b82f6','#06b6d4','#26A17B','#2775CA','#94a3b8'];
+  let seed = 42;
+  const rng = () => { seed=(seed*16807)%2147483647; return (seed-1)/2147483646; };
+  for (let i = 0; i < 46; i++) {
+    const sp=sps[Math.floor(rng()*sps.length)], px=Math.floor(rng()*3)+2;
+    const x=Math.floor(rng()*(W-40)), y=Math.floor(rng()*(H-40));
+    ctx.globalAlpha=0.25+rng()*0.75; ctx.fillStyle=cols[Math.floor(rng()*cols.length)];
+    for (let gy=0;gy<sp.length;gy++)
+      for (let gx=0;gx<sp[gy].length;gx++)
+        if(sp[gy][gx]) ctx.fillRect(x+gx*px, y+gy*px, px, px);
+  }
+  ctx.globalAlpha=1;
+}
+drawBg();
+window.addEventListener('resize', drawBg);
+
+// ════════════════════════════════════════════════
+// ICONS
+// ════════════════════════════════════════════════
+let _gid = 0;
+function coinIconSVG(coinId, size) {
+  const coin = COIN_DEF[coinId];
+  const id = 'cg'+(++_gid), r = size/2;
+  const sym = coinId === 'USDT' ? '₮' : '$';
+  return `<svg viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg" style="display:block;border-radius:50%">
+  <defs><radialGradient id="${id}" cx="35%" cy="28%" r="68%">
+    <stop offset="0%" stop-color="${lighten(coin.mainColor)}"/><stop offset="100%" stop-color="${coin.darkColor}"/>
+  </radialGradient></defs>
+  <circle cx="${r}" cy="${r}" r="${r}" fill="url(#${id})"/>
+  <circle cx="${r}" cy="${r}" r="${r-1}" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="1"/>
+  <text x="${r}" y="${r+r*.2}" text-anchor="middle" dominant-baseline="middle"
+    font-family="-apple-system,BlinkMacSystemFont,sans-serif"
+    font-weight="900" font-size="${size*.45}" fill="rgba(255,255,255,.95)">${sym}</text>
+</svg>`;
+}
+
+function lighten(hex) {
+  // Slightly lighten a hex color for gradient top
+  const n = parseInt(hex.slice(1),16);
+  const r=Math.min(255,((n>>16)&0xff)+50), g=Math.min(255,((n>>8)&0xff)+50), b=Math.min(255,(n&0xff)+50);
+  return `rgb(${r},${g},${b})`;
+}
+
+function exchLogoSVG(exch) {
+  const s=22;
+  return `<svg viewBox="0 0 ${s} ${s}" xmlns="http://www.w3.org/2000/svg" style="display:block;border-radius:5px">
+  <rect width="${s}" height="${s}" rx="5" fill="${exch.logoBg}"/>
+  <text x="${s/2}" y="${s*.7}" text-anchor="middle" font-family="-apple-system,sans-serif"
+    font-weight="900" font-size="${s*.62}" fill="${exch.logoFg}">${exch.letter}</text>
+</svg>`;
+}
+
+// ════════════════════════════════════════════════
+// CLOCK
+// ════════════════════════════════════════════════
+function updateClock() {
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2,'0');
+  const m = String(now.getMinutes()).padStart(2,'0');
+  // Update both rows
+  ['USDT','USDC'].forEach(c => {
+    const el = $('clock-'+c); if (el) el.textContent = h+':'+m;
+  });
+}
+
+// ════════════════════════════════════════════════
+// SUMMARY BAR
+// ════════════════════════════════════════════════
+function buildSummary() {
+  ['USDT','USDC'].forEach(coinId => {
+    const row = $('sum-'+coinId);
+    row.innerHTML = '';
+    const tag = document.createElement('span');
+    tag.className='sum-ctag'; tag.textContent=coinId; row.appendChild(tag);
+
+    EXCH_ORDER.forEach((exchId, i) => {
+      if (i > 0) {
+        const vl=document.createElement('div'); vl.className='sum-vl'; row.appendChild(vl);
+      }
+      const cell=document.createElement('div'); cell.className='sum-cell';
+      cell.innerHTML=
+        `<span class="sum-exn">${EXCH_DEF[exchId].label}</span>`+
+        `<span class="sum-bv" id="sbid-${exchId}-${coinId}">—</span>`+
+        `<span class="sum-sep">/</span>`+
+        `<span class="sum-av" id="sask-${exchId}-${coinId}">—</span>`;
+      row.appendChild(cell);
+    });
+    // Clock only on USDT row
+    if (coinId==='USDT') {
+      const ck=document.createElement('span');
+      ck.className='sum-clock'; ck.id='clock-USDT';
+      row.appendChild(ck);
+    } else {
+      const ck=document.createElement('span');
+      ck.className='sum-clock'; ck.id='clock-USDC'; ck.style.visibility='hidden';
+      row.appendChild(ck);
+    }
+  });
+  updateClock();
+  setInterval(updateClock, 10000);
+}
+
+function updateSummary() {
+  ['USDT','USDC'].forEach(coinId => {
+    EXCH_ORDER.forEach(exchId => {
+      const ob = OB[exchId][coinId]; if (!ob||!ob.bids.length||!ob.asks.length) return;
+      const bEl=$('sbid-'+exchId+'-'+coinId), aEl=$('sask-'+exchId+'-'+coinId);
+      if (bEl) bEl.textContent = fmt(parseFloat(ob.bids[0].price));
+      if (aEl) aEl.textContent = fmt(parseFloat(ob.asks[0].price));
+    });
+  });
+}
+
+// ════════════════════════════════════════════════
+// SIDEBAR
+// ════════════════════════════════════════════════
+function buildSidebar() {
+  const list=$('exch-list'); list.innerHTML='';
+  EXCH_ORDER.forEach(exchId => {
+    const exch=EXCH_DEF[exchId];
+    const btn=document.createElement('button');
+    btn.className='exch-btn'; btn.id='ebtn-'+exchId;
+    btn.innerHTML=
+      `<div class="exch-logo-wrap">${exchLogoSVG(exch)}</div>`+
+      `<div><div class="exch-nm">${exch.label}</div><div class="exch-sb">${exch.sub}</div></div>`+
+      `<span class="exch-dot connecting" id="edot-${exchId}"></span>`;
+    btn.addEventListener('click', () => switchTo(exchId));
+    list.appendChild(btn);
+  });
+  refreshSidebarActive();
+}
+
+function refreshSidebarActive() {
+  document.querySelectorAll('.exch-btn').forEach(b=>b.classList.remove('active'));
+  const btn=$('ebtn-'+currentExchange); if (btn) btn.classList.add('active');
+  $('main-title').textContent = EXCH_DEF[currentExchange].label;
+}
+
+function setStatus(exchId, s) {
+  STATUS[exchId]=s;
+  const dot=$('edot-'+exchId); if (dot) dot.className='exch-dot '+s;
+  if (exchId===currentExchange) {
+    $('main-dot').className='dot '+s;
+    $('main-lbl').textContent={live:'실시간',connecting:'연결 중...',error:'오류',disconnected:'연결 끊김'}[s]||s;
+  }
+}
+
+// ════════════════════════════════════════════════
+// CARD STRUCTURE
+// ════════════════════════════════════════════════
+function buildCards() {
+  ['USDC','USDT'].forEach(coinId => {
+    const card=$('card-'+coinId);
+    card.innerHTML=
+      `<div class="ob-chdr">`+
+        `<div class="ob-cico">${coinIconSVG(coinId,26)}</div>`+
+        `<div><div class="ob-cname">${coinId} / KRW</div><div class="ob-csub">${COIN_DEF[coinId].sub}</div></div>`+
+      `</div>`+
+      `<div class="sec-hdr"><span class="sh-l">매도가 (KRW)</span><span class="sh-r">거래금액 (KRW)</span></div>`+
+      `<div class="ob-asks" id="asks-${coinId}"></div>`+
+      `<div class="ob-mid" id="mid-${coinId}">`+
+        `<div class="mid-row1">`+
+          `<span class="mid-lbl">최근 체결</span>`+
+          `<span class="mid-price" id="midprc-${coinId}">—</span>`+
+        `</div>`+
+        `<div class="mid-vol" id="midvol-${coinId}">24H —</div>`+
+      `</div>`+
+      `<div class="sec-hdr"><span class="sh-l">매수가 (KRW)</span><span class="sh-r">거래금액 (KRW)</span></div>`+
+      `<div class="ob-bids" id="bids-${coinId}"></div>`;
+  });
+}
+
+// ════════════════════════════════════════════════
+// RENDER CARD
+// ════════════════════════════════════════════════
+function renderCard(coinId) {
+  const ob = OB[currentExchange][coinId];
+  const lp = LAST_PRICE[currentExchange][coinId];
+  const v24 = VOL24[currentExchange][coinId];
+
+  // Mid price
+  const midEl=$('midprc-'+coinId);
+  if (midEl) {
+    if (lp!==null) midEl.textContent=fmt(lp);
+    else if (ob&&ob.bids.length&&ob.asks.length) {
+      const mid=(parseFloat(ob.bids[0].price)+parseFloat(ob.asks[0].price))/2;
+      midEl.textContent='≈ '+fmt(Math.round(mid*10)/10);
+    }
+  }
+
+  // 24H volume
+  const volEl=$('midvol-'+coinId);
+  if (volEl&&v24!==null) {
+    volEl.textContent='24H '+fmtAmt(v24)+' '+coinId;
+  }
+
+  if (!ob||(!ob.bids.length&&!ob.asks.length)) return;
+
+  const asks5=ob.asks.slice(0,ASK_ROWS);   // asc, asks[0]=best ask
+  const bids5=ob.bids.slice(0,BID_ROWS);   // desc, bids[0]=best bid
+
+  // Normalize depth by amount
+  const allAmts=[
+    ...asks5.map(a=>parseFloat(a.price)*parseFloat(a.qty??a.size??a.quantity??0)),
+    ...bids5.map(b=>parseFloat(b.price)*parseFloat(b.qty??b.size??b.quantity??0))
+  ].filter(v=>v>0);
+  const maxAmt=allAmts.length?Math.max(...allAmts):1;
+
+  // Asks: highest → lowest (top to bottom), so reverse
+  const asksEl=$('asks-'+coinId); asksEl.innerHTML='';
+  [...asks5].reverse().forEach(ask => {
+    const price=parseFloat(ask.price);
+    const qty=parseFloat(ask.qty??ask.size??ask.quantity??0);
+    const amt=price*qty;
+    const pct=amt>0?Math.min((amt/maxAmt)*85,85):0;
+    const row=document.createElement('div');
+    row.className='ob-row'; row.dataset.price=price;
+    row.innerHTML=
+      `<div class="dbar" style="width:${pct}%"></div>`+
+      `<span class="rprc">${fmt(price)}</span>`+
+      `<span class="ramt">${fmtAmt(amt)}</span>`;
+    asksEl.appendChild(row);
+  });
+
+  // Bids: highest (closest to spread) → lowest (top to bottom)
+  const bidsEl=$('bids-'+coinId); bidsEl.innerHTML='';
+  bids5.forEach(bid => {
+    const price=parseFloat(bid.price);
+    const qty=parseFloat(bid.qty??bid.size??bid.quantity??0);
+    const amt=price*qty;
+    const pct=amt>0?Math.min((amt/maxAmt)*85,85):0;
+    const row=document.createElement('div');
+    row.className='ob-row'; row.dataset.price=price;
+    row.innerHTML=
+      `<div class="dbar" style="width:${pct}%"></div>`+
+      `<span class="rprc">${fmt(price)}</span>`+
+      `<span class="ramt">${fmtAmt(amt)}</span>`;
+    bidsEl.appendChild(row);
+  });
+
+  // Highlight row closest to last price
+  if (lp!==null) {
+    let best=null, bestDiff=Infinity;
+    document.querySelectorAll(`#asks-${coinId} .ob-row, #bids-${coinId} .ob-row`).forEach(r=>{
+      const diff=Math.abs(parseFloat(r.dataset.price)-lp);
+      if(diff<bestDiff){bestDiff=diff;best=r;}
+    });
+    if (best) best.classList.add('cur-price');
+  }
+}
+
+function renderCards() { renderCard('USDC'); renderCard('USDT'); }
+
+// ════════════════════════════════════════════════
+// SWITCH EXCHANGE
+// ════════════════════════════════════════════════
+function switchTo(exchId) {
+  if (exchId===currentExchange) return;
+  currentExchange=exchId;
+  refreshSidebarActive();
+  const s=STATUS[exchId];
+  $('main-dot').className='dot '+s;
+  $('main-lbl').textContent={live:'실시간',connecting:'연결 중...',error:'오류',disconnected:'연결 끊김'}[s]||s;
+  renderCards();
+}
+
+// ════════════════════════════════════════════════
+// UPBIT WEBSOCKET
+// ════════════════════════════════════════════════
+function connectUpbit() {
+  setStatus('upbit','connecting');
+  const ws=WS_MAP.upbit=new WebSocket(EXCH_DEF.upbit.wsUrl);
+  ws.binaryType='arraybuffer';
+  ws.onopen=()=>{
+    if(WS_MAP.upbit!==ws)return;
+    RETRY.upbit=1500; setStatus('upbit','live');
+    ws.send(JSON.stringify([
+      {ticket:'ob-'+Date.now()},
+      {type:'orderbook',codes:['KRW-USDT','KRW-USDC']},
+      {type:'ticker',   codes:['KRW-USDT','KRW-USDC']}
+    ]));
+  };
+  ws.onmessage=ev=>{
+    try{
+      let r=ev.data;
+      if(r instanceof ArrayBuffer)r=new TextDecoder().decode(r);
+      else if(r instanceof Blob){r.text().then(handleUpbit);return;}
+      handleUpbit(r);
+    }catch(e){console.error('upbit',e);}
+  };
+  ws.onerror=()=>setStatus('upbit','error');
+  ws.onclose=()=>{
+    if(WS_MAP.upbit!==ws)return;
+    clearInterval(PTIMER.upbit); setStatus('upbit','disconnected');
+    RTIMER.upbit=setTimeout(()=>{RETRY.upbit=Math.min(RETRY.upbit*1.5,30000);connectUpbit();},RETRY.upbit);
+  };
+}
+
+function handleUpbit(raw) {
+  const d=JSON.parse(raw);
+  const coinId=(d.code||'').replace('KRW-','');
+  if(!COIN_DEF[coinId])return;
+  if(d.type==='orderbook'){
+    const units=d.orderbook_units||[];
+    OB.upbit[coinId]={
+      bids:units.map(u=>({price:String(u.bid_price),qty:String(u.bid_size)})),
+      asks:units.map(u=>({price:String(u.ask_price),qty:String(u.ask_size)}))
+    };
+    updateSummary();
+    if(currentExchange==='upbit')renderCard(coinId);
+  } else if(d.type==='ticker'){
+    LAST_PRICE.upbit[coinId]=d.trade_price;
+    if(d.acc_trade_volume_24h!=null) VOL24.upbit[coinId]=d.acc_trade_volume_24h;
+    if(currentExchange==='upbit')renderCard(coinId);
+  }
+}
+
+// ════════════════════════════════════════════════
+// BITHUMB — REST POLLING
+// ════════════════════════════════════════════════
+async function pollBithumb() {
+  let ok=false;
+  for(const coinId of ['USDT','USDC']){
+    try{
+      const [obRes,tkRes]=await Promise.all([
+        fetch(`https://api.bithumb.com/public/orderbook/${coinId}_KRW?count=20`),
+        fetch(`https://api.bithumb.com/public/ticker/${coinId}_KRW`)
+      ]);
+      const obData=await obRes.json(), tkData=await tkRes.json();
+      if(obData.status==='0000'&&obData.data){
+        const raw=obData.data;
+        const bids=(raw.bids||[]).map(b=>({price:b.price,qty:b.quantity}))
+          .sort((a,b)=>parseFloat(b.price)-parseFloat(a.price));
+        const asks=(raw.asks||[]).map(a=>({price:a.price,qty:a.quantity}))
+          .sort((a,b)=>parseFloat(a.price)-parseFloat(b.price));
+        OB.bithumb[coinId]={bids,asks}; ok=true;
+        updateSummary();
+        if(currentExchange==='bithumb')renderCard(coinId);
+      }
+      if(tkData.status==='0000'&&tkData.data){
+        const lp=parseFloat(tkData.data.closing_price);
+        if(!isNaN(lp)) LAST_PRICE.bithumb[coinId]=lp;
+        const v24=parseFloat(tkData.data.units_traded_24H||'0');
+        if(v24>0) VOL24.bithumb[coinId]=v24;
+        if(currentExchange==='bithumb')renderCard(coinId);
+      }
+    }catch(e){console.error('bithumb',coinId,e);}
+  }
+  setStatus('bithumb',ok?'live':'error');
+}
+function startBithumb(){setStatus('bithumb','connecting');pollBithumb();bithumbTimer=setInterval(pollBithumb,2500);}
+
+// ════════════════════════════════════════════════
+// COINONE WEBSOCKET
+// ════════════════════════════════════════════════
+function connectCoinone() {
+  setStatus('coinone','connecting');
+  const ws=WS_MAP.coinone=new WebSocket(EXCH_DEF.coinone.wsUrl);
+  ws.onopen=()=>{
+    if(WS_MAP.coinone!==ws)return;
+    RETRY.coinone=1500; setStatus('coinone','live');
+    ['USDT','USDC'].forEach(coinId=>{
+      ['ORDERBOOK','TICKER'].forEach(ch=>{
+        ws.send(JSON.stringify({
+          request_type:'SUBSCRIBE',channel:ch,format:'DEFAULT',
+          topic:{quote_currency:'KRW',target_currency:coinId}
+        }));
+      });
+    });
+    clearInterval(PTIMER.coinone);
+    PTIMER.coinone=setInterval(()=>{
+      if(ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify({request_type:'PING'}));
+    },25*60*1000);
+  };
+  ws.onmessage=async ev=>{
+    try{
+      let r=ev.data instanceof Blob?await ev.data.text()
+          :ev.data instanceof ArrayBuffer?new TextDecoder().decode(ev.data)
+          :ev.data;
+      handleCoinone(r);
+    }catch(e){console.error('coinone',e);}
+  };
+  ws.onerror=()=>setStatus('coinone','error');
+  ws.onclose=()=>{
+    if(WS_MAP.coinone!==ws)return;
+    clearInterval(PTIMER.coinone); setStatus('coinone','disconnected');
+    RTIMER.coinone=setTimeout(()=>{RETRY.coinone=Math.min(RETRY.coinone*1.5,30000);connectCoinone();},RETRY.coinone);
+  };
+}
+
+function handleCoinone(raw) {
+  const d=JSON.parse(raw);
+  if(d.response_type!=='DATA')return;
+  const coinId=d.data?.target_currency;
+  if(!coinId||!COIN_DEF[coinId])return;
+  if(d.channel==='ORDERBOOK'){
+    const{bids,asks}=d.data; if(!bids||!asks)return;
+    OB.coinone[coinId]={bids,asks:[...asks].reverse()};
+    updateSummary();
+    if(currentExchange==='coinone')renderCard(coinId);
+  } else if(d.channel==='TICKER'){
+    const lp=parseFloat(d.data.last);
+    if(!isNaN(lp)) LAST_PRICE.coinone[coinId]=lp;
+    const v24=parseFloat(d.data.volume||d.data.target_volume||'0');
+    if(v24>0) VOL24.coinone[coinId]=v24;
+    if(currentExchange==='coinone')renderCard(coinId);
+  }
+}
+
+// ════════════════════════════════════════════════
+// VISIBILITY RECONNECT
+// ════════════════════════════════════════════════
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden)return;
+  ['coinone','upbit'].forEach(id=>{
+    if(!WS_MAP[id]||WS_MAP[id].readyState===WebSocket.CLOSED){
+      clearTimeout(RTIMER[id]); RETRY[id]=1500;
+      if(id==='coinone')connectCoinone(); else connectUpbit();
+    }
+  });
+});
+window.addEventListener('resize',drawBg);
+
+// ════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════
+buildSummary();
+buildSidebar();
+buildCards();
+connectCoinone();
+connectUpbit();
+startBithumb();
+</script>
+</body>
+</html>
