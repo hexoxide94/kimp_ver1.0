@@ -21,8 +21,10 @@ async function getToken() {
       appsecret: process.env.KIS_APP_SECRET
     })
   });
-  const d = await r.json();
-  if (!d.access_token) throw new Error('토큰 발급 실패: ' + JSON.stringify(d));
+  const rawText = await r.text();
+  let d;
+  try { d = JSON.parse(rawText); } catch { throw new Error(`토큰 응답 파싱 실패 (HTTP ${r.status}): ${rawText.slice(0,300)}`); }
+  if (!d.access_token) throw new Error(`토큰 발급 실패 (HTTP ${r.status}): ${JSON.stringify(d)}`);
   const ttl = parseInt(d.expires_in || '86400', 10);
   tokenCache = { token: d.access_token, exp: now + (ttl - 300) * 1000 };
   return tokenCache.token;
@@ -79,6 +81,16 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   if (req.method === 'OPTIONS') return res.status(200).end();
+
+  // 진단: 환경변수 로드 여부 확인 (?debug=1 로 호출 시)
+  if (req.url && req.url.includes('debug=1')) {
+    return res.json({
+      KIS_APP_KEY_length:    process.env.KIS_APP_KEY    ? process.env.KIS_APP_KEY.length    : 'MISSING',
+      KIS_APP_SECRET_length: process.env.KIS_APP_SECRET ? process.env.KIS_APP_SECRET.length : 'MISSING',
+      KIS_MOCK:              process.env.KIS_MOCK        ?? 'MISSING',
+      base:                  kisBase()
+    });
+  }
 
   const session = getSession();
   const iscd = getUsdFuturesCode();
