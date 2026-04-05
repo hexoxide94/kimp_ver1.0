@@ -102,22 +102,23 @@ module.exports = async function handler(req, res) {
 
   try {
     const token = await getToken();
-    const r = await fetch(
-      `${kisBase()}/uapi/domestic-futureoption/v1/quotations/asking-price` +
-      `?FID_COND_MRKT_DIV_CODE=${mktDiv}&FID_INPUT_ISCD=${iscd}`,
-      {
-        headers: {
-          'content-type': 'application/json; charset=utf-8',
-          authorization: `Bearer ${token}`,
-          appkey: process.env.KIS_APP_KEY,
-          appsecret: process.env.KIS_APP_SECRET,
-          tr_id: trId,
-          custtype: 'P'
-        }
+    const obUrl = `${kisBase()}/uapi/domestic-futureoption/v1/quotations/asking-price` +
+      `?FID_COND_MRKT_DIV_CODE=${mktDiv}&FID_INPUT_ISCD=${iscd}`;
+    const r = await fetch(obUrl, {
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        authorization: `Bearer ${token}`,
+        appkey: process.env.KIS_APP_KEY,
+        appsecret: process.env.KIS_APP_SECRET,
+        tr_id: trId,
+        custtype: 'P'
       }
-    );
-    const data = await r.json();
-    return res.json({ iscd, session, data });
+    });
+    const raw = await r.text();
+    let data;
+    try { data = JSON.parse(raw); }
+    catch { return res.status(500).json({ error: `호가 응답 파싱 실패 (HTTP ${r.status})`, raw: raw.slice(0, 500), iscd, trId, mktDiv }); }
+    return res.json({ iscd, session, trId, mktDiv, data });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
