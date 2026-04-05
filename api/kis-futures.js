@@ -109,23 +109,46 @@ module.exports = async function handler(req, res) {
 
   try {
     const token = await getToken();
-    const obUrl = `${kisBase()}/uapi/domestic-futureoption/v1/quotations/asking-price` +
-      `?FID_COND_MRKT_DIV_CODE=${mktDiv}&FID_INPUT_ISCD=${iscd}`;
-    const r = await fetch(obUrl, {
-      headers: {
-        'content-type': 'application/json; charset=utf-8',
-        authorization: `Bearer ${token}`,
-        appkey: process.env.KIS_APP_KEY,
-        appsecret: process.env.KIS_APP_SECRET,
-        tr_id: trId,
-        custtype: 'P'
-      }
-    });
-    const raw = await r.text();
-    let data;
-    try { data = JSON.parse(raw); }
-    catch { return res.status(500).json({ error: `호가 응답 파싱 실패 (HTTP ${r.status})`, raw: raw.slice(0, 500), iscd, trId, mktDiv }); }
-    return res.json({ iscd, session, trId, mktDiv, data });
+
+    // 쿼리로 iscd 직접 지정 가능 (?iscd=XXXX)
+    const urlObj = new URL(req.url, `http://localhost`);
+    const testIscd = urlObj.searchParams.get('iscd') || iscd;
+
+    // KIS 국내선물옵션 호가 조회 — endpoint 두 가지 순차 시도
+    const endpoints = [
+      '/uapi/domestic-futureoption/v1/quotations/inquire-asking-price',
+      '/uapi/domestic-futureoption/v1/quotations/asking-price',
+    ];
+
+    let data, lastRaw = '', lastStatus = 0, lastEndpoint = '';
+    for (const ep of endpoints) {
+      const obUrl = `${kisBase()}${ep}?FID_COND_MRKT_DIV_CODE=${mktDiv}&FID_INPUT_ISCD=${testIscd}`;
+      const r = await fetch(obUrl, {
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          authorization: `Bearer ${token}`,
+          appkey: process.env.KIS_APP_KEY,
+          appsecret: process.env.KIS_APP_SECRET,
+          tr_id: trId,
+          custtype: 'P'
+        }
+      });
+      lastStatus = r.status;
+      lastRaw = await r.text();
+      lastEndpoint = ep;
+      if (r.status !== 404 && lastRaw) break;
+    }
+
+    let parsed;
+    try { parsed = JSON.parse(lastRaw); }
+    catch {
+      return res.status(500).json({
+        error: `응답 파싱 실패 (HTTP ${lastStatus})`,
+        endpoint: lastEndpoint, iscd: testIscd, trId, mktDiv,
+        raw: lastRaw.slice(0, 500)
+      });
+    }
+    return res.json({ iscd: testIscd, session, trId, mktDiv, endpoint: lastEndpoint, data: parsed });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
