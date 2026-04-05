@@ -14,7 +14,7 @@
   --text3: #64748b;
   --ask:   #3b82f6;
   --bid:   #ef4444;
-  --sumh:  90px;
+  --sumh:  116px;
 }
 * { box-sizing:border-box; margin:0; padding:0; }
 body {
@@ -71,6 +71,24 @@ body {
   border-bottom:1px solid rgba(38,161,123,.12);
 }
 .sum-row-USDC { background:rgba(39,117,202,.10); }
+
+/* 달러선물 요약행 */
+.sum-row-futures {
+  height:26px; flex-shrink:0;
+  display:flex; align-items:center;
+  padding:0 14px; gap:10px;
+  background:rgba(79,195,247,.07);
+  border-top:1px solid rgba(79,195,247,.09);
+}
+.sum-ft-tag {
+  display:flex; align-items:center; gap:5px;
+  font-size:9px; font-weight:800; letter-spacing:.6px;
+  color:#4fc3f7; flex-shrink:0; text-transform:uppercase;
+}
+.sum-ft-dot { width:6px; height:6px; border-radius:50%; background:#4fc3f7; box-shadow:0 0 4px rgba(79,195,247,.7); flex-shrink:0; }
+.sum-ft-price { font-size:11.5px; font-weight:700; color:#e2e8f0; font-variant-numeric:tabular-nums; }
+.sum-ft-diff  { font-size:10px; font-weight:600; font-variant-numeric:tabular-nums; }
+.sum-ft-session { margin-left:auto; font-size:10px; font-weight:600; flex-shrink:0; display:flex; align-items:center; gap:3px; color:var(--text3); }
 
 .sum-tag {
   width:54px; min-width:54px; flex-shrink:0;
@@ -310,18 +328,25 @@ body {
 
 /* ── MOBILE ── */
 @media (max-width:700px) {
-  :root { --sumh: 90px; }
+  :root { --sumh: 116px; }
   .app { flex-direction:column; }
   .sidebar {
     width:100%; height:auto; position:static;
     border-right:none; border-bottom:1px solid var(--sep);
-    padding:8px 0 4px;
+    padding:6px 0 4px;
+    flex-direction:row; align-items:center; flex-wrap:nowrap;
   }
   .brand { display:none; }
   .sb-sec { display:none; }
   .sb-divider { display:none; }
-  .exch-list { flex-direction:row; flex-wrap:wrap; padding:0 8px 8px; gap:5px; overflow-x:hidden; }
-  .exch-btn  { padding:5px 10px; border-radius:999px; flex-shrink:1; white-space:nowrap; }
+  /* 모든 exch-list를 한 줄에 배치 */
+  .sidebar { display:flex; }
+  .exch-list { flex:1; flex-direction:row; flex-wrap:nowrap; padding:0 4px 0; gap:4px; min-width:0; }
+  #futures-list { flex:0 0 auto; padding:0 8px 0 0; }
+  .exch-btn  { flex:1; min-width:0; padding:5px 3px; border-radius:999px;
+               justify-content:center; gap:4px; white-space:nowrap; }
+  .exch-logo-wrap { width:16px; height:16px; }
+  .exch-nm   { font-size:9.5px; letter-spacing:0; overflow:hidden; text-overflow:ellipsis; }
   .exch-sb   { display:none; }
   .exch-dot  { display:none; }
   .main { padding:10px 10px 30px; }
@@ -352,6 +377,12 @@ body {
     <div class="sum-row-hdr" id="sum-hdr"></div>
     <div class="sum-row sum-row-USDT" id="sum-USDT"></div>
     <div class="sum-row sum-row-USDC" id="sum-USDC"></div>
+    <div class="sum-row-futures" id="sum-futures">
+      <div class="sum-ft-tag"><span class="sum-ft-dot"></span>달러선물</div>
+      <span class="sum-ft-price" id="sft-price">—</span>
+      <span class="sum-ft-diff"  id="sft-diff"></span>
+      <div class="sum-ft-session" id="sft-session">조회 중...</div>
+    </div>
   </div>
 </div>
 
@@ -984,6 +1015,7 @@ function renderFutures(iscd, session, data, priceResp) {
       $('futures-subinfo').textContent=isClosed?'장 마감':'호가 데이터 없음';
     }
     $('edot-futures').className='exch-dot '+(closePrc>0?'live':'connecting');
+    updateFuturesSummary(closePrc, closeDiff, closePct, session);
     return;
   }
 
@@ -1034,9 +1066,27 @@ function renderFutures(iscd, session, data, priceResp) {
 
   $('futures-status').textContent='';
   $('edot-futures').className='exch-dot live';
-
-  // 세션 주기적 업데이트
   updateSessionBadge(session);
+  updateFuturesSummary(cur, diff, diffPct, session);
+}
+
+// summary bar 달러선물 행 업데이트
+function updateFuturesSummary(price, diff, diffPct, session) {
+  const pEl=$('sft-price'), dEl=$('sft-diff'), sEl=$('sft-session');
+  if(!pEl) return;
+  if(price>0){
+    pEl.textContent=fmtFP(price);
+    const dc=diff>=0?'var(--bid)':'var(--ask)', sg=diff>=0?'+':'';
+    dEl.style.color=dc;
+    dEl.textContent=`${sg}${fmtFP(diff)}`;
+  } else {
+    pEl.textContent='—'; dEl.textContent='';
+  }
+  // 세션 아이콘
+  const info=getSessionInfo();
+  const icon=info.session.startsWith('night')?'🌙':'☀️';
+  const label=info.closed?(info.session.startsWith('night')?'야간 마감':'주간 마감'):(info.session==='night'?'야간':'주간');
+  sEl.textContent=`${icon} ${label}`;
 }
 
 // ════════════════════════════════════════════════
