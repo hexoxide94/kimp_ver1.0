@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>실시간 호가창 · 코인 / 달러선물</title>
+<style>
+:root {
+  --bg:    #090d1a;
+  --bg2:   #111827;
+  --sep:   rgba(255,255,255,.07);
+  --text:  #ffffff;
+  --text2: #94a3b8;
+  --text3: #64748b;
+  --ask:   #3b82f6;
+  --bid:   #ef4444;
+  --sumh:  90px;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body {
+  background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Noto Sans KR',sans-serif;
+  min-height:100vh; overflow-x:hidden;
+}
+#bg-canvas { position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.03; }
+
+/* ── SUMMARY BAR ── */
+.sum-bar {
+  position:fixed; top:0; left:0; right:0; height:var(--sumh);
+  background:rgba(7,10,20,.98);
+  backdrop-filter:blur(20px) saturate(180%);
+  border-bottom:1px solid var(--sep);
+  z-index:200;
+  overflow-x:auto; overflow-y:hidden;
+  scrollbar-width:none;
+}
+.sum-bar::-webkit-scrollbar { display:none; }
+
+.sum-inner {
+  min-width:430px;
+  height:100%;
+  display:flex; flex-direction:column;
+}
+
+/* 헤더행 — 거래소 이름 */
+.sum-row-hdr {
+  height:24px; flex-shrink:0;
+  display:flex; align-items:center;
+  padding:0 14px;
+  background:rgba(5,8,18,.7);
+  border-bottom:1px solid rgba(255,255,255,.05);
+}
+.sum-hdr-spacer { width:54px; min-width:54px; flex-shrink:0; }
+.sum-hdr-cells { display:flex; flex:1; }
+.sum-hdr-cell {
+  flex:1; min-width:112px;
+  text-align:center;
+  font-size:8.5px; font-weight:700;
+  color:var(--text3); letter-spacing:.8px; text-transform:uppercase;
+}
+.sum-hdr-clock { flex-shrink:0; padding-left:10px; }
+.sum-clock { font-size:10px; font-weight:600; color:var(--text3); font-variant-numeric:tabular-nums; letter-spacing:.3px; }
+
+/* USDT / USDC 행 */
+.sum-row {
+  flex:1; display:flex; align-items:center;
+  padding:0 14px;
+}
+.sum-row-USDT {
+  background:rgba(38,161,123,.10);
+  border-bottom:1px solid rgba(38,161,123,.12);
+}
+.sum-row-USDC { background:rgba(39,117,202,.10); }
+
+.sum-tag {
+  width:54px; min-width:54px; flex-shrink:0;
+  display:flex; align-items:center; gap:5px;
+  font-size:9.5px; font-weight:800; letter-spacing:.5px;
+}
+.sum-tag-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.sum-row-USDT .sum-tag { color:#5ecea9; }
+.sum-row-USDT .sum-tag-dot { background:#26A17B; box-shadow:0 0 5px rgba(38,161,123,.6); }
+.sum-row-USDC .sum-tag { color:#6eabdf; }
+.sum-row-USDC .sum-tag-dot { background:#2775CA; box-shadow:0 0 5px rgba(39,117,202,.6); }
+
+.sum-cells { display:flex; flex:1; }
+.sum-cell {
+  flex:1; min-width:112px;
+  display:flex; align-items:center;
+  justify-content:center; gap:4px;
+}
+.sum-bv { font-size:11px; font-weight:700; color:var(--bid); font-variant-numeric:tabular-nums; }
+.sum-sv { font-size:10px; color:var(--text3); }
+.sum-av { font-size:11px; font-weight:700; color:var(--ask); font-variant-numeric:tabular-nums; }
+
+/* ── APP ── */
+.app {
+  position:relative; z-index:1;
+  display:flex; min-height:100vh;
+  padding-top:var(--sumh);
+}
+
+/* ── SIDEBAR ── */
+.sidebar {
+  width:142px; flex-shrink:0;
+  background:rgba(14,20,34,.92);
+  backdrop-filter:blur(28px);
+  border-right:1px solid var(--sep);
+  display:flex; flex-direction:column;
+  position:sticky; top:var(--sumh);
+  height:calc(100vh - var(--sumh));
+  padding:14px 0 20px; z-index:10;
+  overflow-y:auto; scrollbar-width:none;
+}
+.sidebar::-webkit-scrollbar { display:none; }
+.brand {
+  padding:0 13px 14px;
+  border-bottom:1px solid var(--sep); margin-bottom:14px;
+}
+.brand-logo {
+  width:30px; height:30px; border-radius:7px;
+  background:linear-gradient(135deg,#3b82f6,#06b6d4);
+  display:flex; align-items:center; justify-content:center;
+  font-size:14px; font-weight:800; color:#fff; margin-bottom:7px;
+}
+.brand-text { font-size:12px; font-weight:700; }
+.brand-sub  { font-size:9px; color:var(--text3); margin-top:2px; }
+.sb-sec {
+  padding:0 13px 6px;
+  font-size:9px; font-weight:600; color:var(--text3);
+  text-transform:uppercase; letter-spacing:1px;
+}
+.sb-divider {
+  height:1px; background:var(--sep);
+  margin:10px 13px 12px;
+}
+.exch-list { display:flex; flex-direction:column; gap:3px; padding:0 7px; }
+.exch-btn {
+  display:flex; align-items:center; gap:8px;
+  padding:9px 10px; border-radius:8px;
+  border:1px solid transparent; background:transparent; color:var(--text2);
+  cursor:pointer; text-align:left; width:100%;
+  transition:background .15s, color .15s, border-color .15s;
+}
+.exch-btn:hover { background:rgba(255,255,255,.05); color:var(--text); }
+.exch-btn.active {
+  background:rgba(59,130,246,.13); color:#60a5fa;
+  border-color:rgba(59,130,246,.28);
+}
+.exch-logo-wrap { width:22px; height:22px; flex-shrink:0; border-radius:5px; overflow:hidden; }
+.exch-dot {
+  width:6px; height:6px; border-radius:50%;
+  background:#1e293b; flex-shrink:0; transition:background .3s;
+  margin-left:auto;
+}
+.exch-dot.live       { background:#22c55e; box-shadow:0 0 5px rgba(34,197,94,.5); }
+.exch-dot.connecting { background:#f59e0b; animation:blink .7s infinite; }
+.exch-dot.error,
+.exch-dot.disconnected { background:#ef4444; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+.exch-nm { font-size:11.5px; font-weight:700; letter-spacing:.2px; }
+.exch-sb { font-size:8.5px; color:var(--text3); margin-top:1px; }
+.exch-btn.active .exch-sb { color:rgba(96,165,250,.6); }
+
+/* ── MAIN ── */
+.main { flex:1; min-width:0; padding:16px 16px 36px; }
+.main-hdr {
+  display:flex; justify-content:space-between; align-items:center;
+  margin-bottom:12px;
+}
+.main-title { font-size:16px; font-weight:700; letter-spacing:.3px; }
+.main-sub   { font-size:10.5px; color:var(--text3); margin-top:2px; }
+.hdr-right  { display:flex; align-items:center; gap:8px; }
+.badge {
+  display:flex; align-items:center; gap:5px;
+  background:rgba(255,255,255,.04); border:1px solid var(--sep);
+  border-radius:7px; padding:4px 10px;
+  font-size:11px; color:var(--text2); flex-shrink:0;
+}
+.dot { width:5px; height:5px; border-radius:50%; background:#1e293b; }
+.dot.live       { background:#22c55e; }
+.dot.connecting { background:#f59e0b; animation:blink .7s infinite; }
+.dot.error,.dot.disconnected { background:#ef4444; }
+
+/* ── OB TABS ── */
+.ob-tabs {
+  display:flex; gap:6px; margin-bottom:12px;
+}
+.ob-tab {
+  padding:5px 15px; border-radius:999px;
+  border:1px solid var(--sep); background:transparent;
+  color:var(--text2); font-size:11.5px; font-weight:600;
+  cursor:pointer; transition:all .15s; flex-shrink:0;
+}
+.ob-tab:hover { background:rgba(255,255,255,.05); color:var(--text); }
+.ob-tab.active {
+  background:rgba(59,130,246,.13); color:#60a5fa;
+  border-color:rgba(59,130,246,.28);
+}
+
+/* ── OB GRID ── */
+.ob-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+
+/* ── OB CARD ── */
+.ob-card {
+  background:var(--bg2); border:1px solid var(--sep);
+  border-radius:10px; overflow:hidden;
+}
+.ob-chdr {
+  display:flex; align-items:center; gap:9px;
+  padding:10px 13px 9px;
+  background:rgba(20,28,46,.7);
+  border-bottom:1px solid var(--sep);
+}
+.ob-cico   { width:26px; height:26px; flex-shrink:0; }
+.ob-cname  { font-size:13px; font-weight:700; }
+.ob-csub   { font-size:9px; color:var(--text3); margin-top:1px; }
+
+/* Section headers */
+.sec-hdr {
+  display:grid; grid-template-columns:1fr 1fr;
+  padding:4px 13px;
+  font-size:8.5px; font-weight:600; color:var(--text3);
+  text-transform:uppercase; letter-spacing:.6px;
+  background:#0c1220;
+}
+.sec-hdr .sh-l { text-align:left; }
+.sec-hdr .sh-r { text-align:right; }
+
+/* OB rows */
+.ob-asks { background:#090d1a; }
+.ob-bids { background:#090d1a; }
+.ob-row {
+  display:grid; grid-template-columns:1fr 1fr;
+  height:30px; align-items:center;
+  padding:0 13px; position:relative; overflow:hidden;
+  transition:background .07s;
+}
+.ob-row:hover { background:rgba(255,255,255,.025); }
+.ob-row.cur-price { box-shadow:inset 0 0 0 1px rgba(255,255,255,.6); z-index:1; }
+.dbar {
+  position:absolute; top:3px; bottom:3px; right:0;
+  border-radius:2px; pointer-events:none;
+  transition:width .32s cubic-bezier(.4,0,.2,1);
+}
+.ob-asks .dbar { background:rgba(59,130,246,.15); }
+.ob-bids .dbar { background:rgba(239,68,68,.15); }
+.rprc {
+  font-size:12px; font-weight:600; font-variant-numeric:tabular-nums;
+  text-align:left; position:relative; z-index:1; letter-spacing:.2px;
+}
+.ob-asks .rprc { color:var(--ask); }
+.ob-bids .rprc { color:var(--bid); }
+.ramt {
+  font-size:10.5px; font-variant-numeric:tabular-nums;
+  color:var(--text3); text-align:right; position:relative; z-index:1;
+}
+
+/* Mid section */
+.ob-mid {
+  display:flex; flex-direction:column; align-items:center;
+  padding:7px 13px;
+  background:rgba(255,255,255,.022);
+  border-top:1px solid var(--sep); border-bottom:1px solid var(--sep);
+  gap:2px;
+}
+.mid-row1 { display:flex; align-items:center; gap:7px; }
+.mid-lbl   { font-size:8.5px; font-weight:600; color:var(--text3); text-transform:uppercase; letter-spacing:.5px; }
+.mid-price { font-size:14px; font-weight:700; font-variant-numeric:tabular-nums; }
+.mid-vol   { font-size:9.5px; color:var(--text3); font-variant-numeric:tabular-nums; letter-spacing:.2px; }
+
+/* ── FUTURES PANEL ── */
+.futures-panel-hdr {
+  display:flex; align-items:center; gap:10px;
+  margin-bottom:12px; flex-wrap:wrap;
+}
+.session-badge {
+  display:inline-flex; align-items:center; gap:5px;
+  padding:4px 12px; border-radius:999px;
+  font-size:11px; font-weight:700; flex-shrink:0;
+}
+.session-day   { background:rgba(251,191,36,.12); color:#fbbf24; border:1px solid rgba(251,191,36,.25); }
+.session-night { background:rgba(99,102,241,.12); color:#818cf8; border:1px solid rgba(99,102,241,.25); }
+.session-closed-badge {
+  font-size:8.5px; letter-spacing:.5px;
+  background:rgba(239,68,68,.15); color:#f87171;
+  padding:1px 6px; border-radius:4px; margin-left:2px;
+}
+.futures-iscd {
+  font-size:10px; color:var(--text3);
+  background:rgba(255,255,255,.05); border:1px solid var(--sep);
+  padding:3px 8px; border-radius:5px; font-family:monospace;
+}
+.futures-loading {
+  display:flex; align-items:center; justify-content:center;
+  height:200px; color:var(--text3); font-size:13px; gap:8px;
+}
+.futures-error {
+  margin:16px 0;
+  padding:12px 16px; border-radius:8px;
+  background:rgba(239,68,68,.08); border:1px solid rgba(239,68,68,.2);
+  color:#f87171; font-size:12px; line-height:1.6;
+}
+.futures-ob-wrap {
+  max-width:480px;
+}
+.futures-diff {
+  font-size:11px; font-variant-numeric:tabular-nums; font-weight:600;
+}
+
+/* ── MOBILE ── */
+@media (max-width:700px) {
+  :root { --sumh: 90px; }
+  .app { flex-direction:column; }
+  .sidebar {
+    width:100%; height:auto; position:static;
+    border-right:none; border-bottom:1px solid var(--sep);
+    padding:8px 0 4px;
+  }
+  .brand { display:none; }
+  .sb-sec { display:none; }
+  .sb-divider { display:none; }
+  .exch-list { flex-direction:row; padding:0 8px 8px; gap:6px; overflow-x:auto; scrollbar-width:none; }
+  .exch-list::-webkit-scrollbar { display:none; }
+  .exch-btn  { padding:6px 11px; border-radius:999px; flex-shrink:0; white-space:nowrap; }
+  .exch-sb   { display:none; }
+  .exch-dot  { display:none; }
+  .main { padding:10px 10px 30px; }
+  /* 모바일 기본: 한 개 카드만 full width */
+  .ob-grid { grid-template-columns:1fr; }
+  /* 탭에서 "전체" 선택 시 나란히 */
+  .ob-grid.mob-both {
+    grid-template-columns:1fr 1fr; gap:6px;
+  }
+  .ob-grid.mob-both .ob-row { height:26px; padding:0 7px; }
+  .ob-grid.mob-both .rprc { font-size:10.5px; }
+  .ob-grid.mob-both .ramt { font-size:9px; }
+  .ob-grid.mob-both .ob-chdr { padding:8px 9px; }
+  .ob-grid.mob-both .ob-cname { font-size:11.5px; }
+  .ob-grid.mob-both .ob-cico { width:20px; height:20px; }
+  .ob-grid.mob-both .mid-price { font-size:12px; }
+  .ob-grid.mob-both .mid-vol { display:none; }
+  .ob-grid.mob-both .sec-hdr { padding:3px 7px; font-size:7.5px; }
+}
+</style>
+</head>
+<body>
+<canvas id="bg-canvas"></canvas>
+
+<!-- SUMMARY BAR -->
+<div class="sum-bar">
+  <div class="sum-inner">
+    <div class="sum-row-hdr" id="sum-hdr"></div>
+    <div class="sum-row sum-row-USDT" id="sum-USDT"></div>
+    <div class="sum-row sum-row-USDC" id="sum-USDC"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">◈</div>
+      <div class="brand-text">실시간 호가</div>
+      <div class="brand-sub">Multi Exchange</div>
+    </div>
+    <div class="sb-sec">거래소</div>
+    <div class="exch-list" id="exch-list"></div>
+    <div class="sb-divider"></div>
+    <div class="sb-sec">국내선물</div>
+    <div class="exch-list" id="futures-list"></div>
+  </aside>
+
+  <main class="main">
+    <div class="main-hdr">
+      <div>
+        <div class="main-title" id="main-title">COINONE</div>
+        <div class="main-sub" id="main-sub">KRW Market · USDC / USDT</div>
+      </div>
+      <div class="hdr-right" id="main-status">
+        <div class="badge">
+          <div class="dot connecting" id="main-dot"></div>
+          <span id="main-lbl">연결 중...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 코인 호가 탭 -->
+    <div class="ob-tabs" id="ob-tabs">
+      <button class="ob-tab active" data-tab="both"  onclick="applyTab('both')">전체</button>
+      <button class="ob-tab"        data-tab="USDC"  onclick="applyTab('USDC')">USDC</button>
+      <button class="ob-tab"        data-tab="USDT"  onclick="applyTab('USDT')">USDT</button>
+    </div>
+
+    <!-- 코인 호가창 그리드 -->
+    <div class="ob-grid mob-both" id="ob-grid">
+      <div class="ob-card" id="card-USDC"></div>
+      <div class="ob-card" id="card-USDT"></div>
+    </div>
+
+    <!-- 달러선물 패널 -->
+    <div id="futures-panel" style="display:none">
+      <div class="futures-panel-hdr">
+        <div id="futures-session-badge" class="session-badge session-night">🌙 야간</div>
+        <span class="futures-iscd" id="futures-iscd-label">—</span>
+        <span id="futures-status" style="font-size:11px;color:var(--text3)">조회 중...</span>
+      </div>
+      <div class="futures-ob-wrap">
+        <div class="ob-card">
+          <div class="ob-chdr">
+            <div class="ob-cico" id="futures-icon"></div>
+            <div>
+              <div class="ob-cname">USD/KRW 선물</div>
+              <div class="ob-csub" id="futures-expiry">만기월 조회 중...</div>
+            </div>
+          </div>
+          <div class="sec-hdr"><span class="sh-l">매도가 (KRW/USD)</span><span class="sh-r">잔량(계약)</span></div>
+          <div class="ob-asks" id="futures-asks"></div>
+          <div class="ob-mid" id="futures-mid">
+            <div class="mid-row1">
+              <span class="mid-lbl">현재가</span>
+              <span class="mid-price" id="futures-price">—</span>
+              <span class="futures-diff" id="futures-diff"></span>
+            </div>
+            <div class="mid-vol" id="futures-subinfo"></div>
+          </div>
+          <div class="sec-hdr"><span class="sh-l">매수가 (KRW/USD)</span><span class="sh-r">잔량(계약)</span></div>
+          <div class="ob-bids" id="futures-bids"></div>
+        </div>
+      </div>
+      <div id="futures-error" class="futures-error" style="display:none"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+// ════════════════════════════════════════════════
+// DEFINITIONS
+// ════════════════════════════════════════════════
+const EXCH_ORDER = ['coinone','upbit','bithumb'];
+
+const EXCH_DEF = {
+  coinone: { label:'COINONE', sub:'코인원 KRW', wsUrl:'wss://stream.coinone.co.kr', logoBg:'#1a3a8f', logoFg:'#60a5fa', letter:'C' },
+  upbit:   { label:'UPBIT',   sub:'업비트 KRW', wsUrl:'wss://api.upbit.com/websocket/v1', logoBg:'#0042a8', logoFg:'#93c5fd', letter:'U' },
+  bithumb: { label:'BITHUMB', sub:'빗썸 KRW',   rest:true, logoBg:'#7a4600', logoFg:'#fbbf24', letter:'B' }
+};
+
+const COIN_DEF = {
+  USDT: { label:'USDT', sub:'Tether USD',  mainColor:'#26A17B', darkColor:'#1a6e53' },
+  USDC: { label:'USDC', sub:'USD Coin',    mainColor:'#2775CA', darkColor:'#1a4f8f' }
+};
+
+const ASK_ROWS = 5, BID_ROWS = 5;
+
+// ════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════
+const OB = { coinone:{USDT:null,USDC:null}, upbit:{USDT:null,USDC:null}, bithumb:{USDT:null,USDC:null} };
+const LAST_PRICE = { coinone:{USDT:null,USDC:null}, upbit:{USDT:null,USDC:null}, bithumb:{USDT:null,USDC:null} };
+const VOL24      = { coinone:{USDT:null,USDC:null}, upbit:{USDT:null,USDC:null}, bithumb:{USDT:null,USDC:null} };
+const WS_MAP  = { coinone:null, upbit:null };
+const STATUS  = { coinone:'connecting', upbit:'connecting', bithumb:'connecting' };
+const RETRY   = { coinone:1500, upbit:1500 };
+const RTIMER  = { coinone:null, upbit:null };
+const PTIMER  = { coinone:null, upbit:null };
+let bithumbTimer = null;
+
+let currentExchange = 'coinone';
+let currentMode     = 'crypto'; // 'crypto' | 'futures'
+let currentTab      = 'both';
+let futuresTimer    = null;
+
+const $   = id => document.getElementById(id);
+const fmt = v  => Number(v).toLocaleString('ko-KR');
+const fmtAmt = n => { n=Math.round(Number(n)); return isNaN(n)?'—':n.toLocaleString('ko-KR'); };
+const fmtFP = v => Number(v).toLocaleString('ko-KR', {minimumFractionDigits:2, maximumFractionDigits:2});
+
+// ════════════════════════════════════════════════
+// PIXEL BACKGROUND
+// ════════════════════════════════════════════════
+const SPRITES = {
+  coin:    [[0,0,1,1,1,1,0,0],[0,1,1,0,0,1,1,0],[1,1,0,1,1,0,1,1],[1,0,1,1,1,1,0,1],[1,0,1,1,1,1,0,1],[1,1,0,1,1,0,1,1],[0,1,1,0,0,1,1,0],[0,0,1,1,1,1,0,0]],
+  diamond: [[0,0,1,1,0,0],[0,1,1,1,1,0],[1,1,1,1,1,1],[0,1,1,1,1,0],[0,0,1,1,0,0]],
+  bars:    [[0,0,0,1,0,1],[0,0,0,1,0,1],[0,1,0,1,0,1],[0,1,0,1,1,1],[1,1,1,1,1,1]],
+};
+function drawBg() {
+  const cv=$('bg-canvas');
+  const W=cv.width=window.innerWidth, H=cv.height=window.innerHeight;
+  const ctx=cv.getContext('2d');
+  const sps=Object.values(SPRITES);
+  const cols=['#3b82f6','#06b6d4','#26A17B','#2775CA','#94a3b8'];
+  let seed=42;
+  const rng=()=>{ seed=(seed*16807)%2147483647; return (seed-1)/2147483646; };
+  for(let i=0;i<46;i++){
+    const sp=sps[Math.floor(rng()*sps.length)], px=Math.floor(rng()*3)+2;
+    const x=Math.floor(rng()*(W-40)), y=Math.floor(rng()*(H-40));
+    ctx.globalAlpha=0.25+rng()*0.75; ctx.fillStyle=cols[Math.floor(rng()*cols.length)];
+    for(let gy=0;gy<sp.length;gy++) for(let gx=0;gx<sp[gy].length;gx++) if(sp[gy][gx]) ctx.fillRect(x+gx*px,y+gy*px,px,px);
+  }
+  ctx.globalAlpha=1;
+}
+drawBg(); window.addEventListener('resize', drawBg);
+
+// ════════════════════════════════════════════════
+// ICONS
+// ════════════════════════════════════════════════
+let _gid=0;
+function coinIconSVG(coinId, size) {
+  const coin=COIN_DEF[coinId], id='cg'+(++_gid), r=size/2;
+  const sym=coinId==='USDT'?'₮':'$';
+  return `<svg viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg" style="display:block;border-radius:50%">
+  <defs><radialGradient id="${id}" cx="35%" cy="28%" r="68%">
+    <stop offset="0%" stop-color="${lighten(coin.mainColor)}"/><stop offset="100%" stop-color="${coin.darkColor}"/>
+  </radialGradient></defs>
+  <circle cx="${r}" cy="${r}" r="${r}" fill="url(#${id})"/>
+  <circle cx="${r}" cy="${r}" r="${r-1}" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="1"/>
+  <text x="${r}" y="${r+r*.2}" text-anchor="middle" dominant-baseline="middle"
+    font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-weight="900" font-size="${size*.45}" fill="rgba(255,255,255,.95)">${sym}</text>
+</svg>`;
+}
+function lighten(hex) {
+  const n=parseInt(hex.slice(1),16);
+  const r=Math.min(255,((n>>16)&0xff)+50), g=Math.min(255,((n>>8)&0xff)+50), b=Math.min(255,(n&0xff)+50);
+  return `rgb(${r},${g},${b})`;
+}
+function exchLogoSVG(exch) {
+  const s=22;
+  return `<svg viewBox="0 0 ${s} ${s}" xmlns="http://www.w3.org/2000/svg" style="display:block;border-radius:5px">
+  <rect width="${s}" height="${s}" rx="5" fill="${exch.logoBg}"/>
+  <text x="${s/2}" y="${s*.7}" text-anchor="middle" font-family="-apple-system,sans-serif" font-weight="900" font-size="${s*.62}" fill="${exch.logoFg}">${exch.letter}</text>
+</svg>`;
+}
+function futuresIconSVG() {
+  const s=22;
+  return `<svg viewBox="0 0 ${s} ${s}" xmlns="http://www.w3.org/2000/svg" style="display:block;border-radius:5px">
+  <rect width="${s}" height="${s}" rx="5" fill="#1a1a3e"/>
+  <text x="${s/2}" y="${s*.7}" text-anchor="middle" font-family="-apple-system,sans-serif" font-weight="900" font-size="${s*.54}" fill="#4fc3f7">₩</text>
+</svg>`;
+}
+
+// ════════════════════════════════════════════════
+// CLOCK
+// ════════════════════════════════════════════════
+function updateClock() {
+  const now=new Date();
+  const el=$('sum-clock');
+  if(el) el.textContent=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+}
+
+// ════════════════════════════════════════════════
+// SUMMARY BAR (3행: 거래소 헤더 + USDT + USDC)
+// ════════════════════════════════════════════════
+function buildSummary() {
+  // 헤더행
+  const hdr=$('sum-hdr');
+  const spacer=document.createElement('div'); spacer.className='sum-hdr-spacer'; hdr.appendChild(spacer);
+  const cells=document.createElement('div'); cells.className='sum-hdr-cells';
+  EXCH_ORDER.forEach(exchId=>{
+    const c=document.createElement('div'); c.className='sum-hdr-cell';
+    c.textContent=EXCH_DEF[exchId].label; cells.appendChild(c);
+  });
+  hdr.appendChild(cells);
+  const ckWrap=document.createElement('div'); ckWrap.className='sum-hdr-clock';
+  ckWrap.innerHTML='<span class="sum-clock" id="sum-clock">--:--</span>';
+  hdr.appendChild(ckWrap);
+
+  // USDT / USDC 행
+  ['USDT','USDC'].forEach(coinId=>{
+    const row=$('sum-'+coinId);
+    const tag=document.createElement('div'); tag.className='sum-tag';
+    tag.innerHTML=`<span class="sum-tag-dot"></span>${coinId}`;
+    row.appendChild(tag);
+    const sc=document.createElement('div'); sc.className='sum-cells';
+    EXCH_ORDER.forEach(exchId=>{
+      const cell=document.createElement('div'); cell.className='sum-cell';
+      cell.innerHTML=
+        `<span class="sum-bv" id="sbid-${exchId}-${coinId}">—</span>`+
+        `<span class="sum-sv">/</span>`+
+        `<span class="sum-av" id="sask-${exchId}-${coinId}">—</span>`;
+      sc.appendChild(cell);
+    });
+    row.appendChild(sc);
+  });
+
+  updateClock();
+  setInterval(updateClock, 10000);
+}
+
+function updateSummary() {
+  ['USDT','USDC'].forEach(coinId=>{
+    EXCH_ORDER.forEach(exchId=>{
+      const ob=OB[exchId][coinId]; if(!ob||!ob.bids.length||!ob.asks.length) return;
+      const bEl=$('sbid-'+exchId+'-'+coinId), aEl=$('sask-'+exchId+'-'+coinId);
+      if(bEl) bEl.textContent=fmt(parseFloat(ob.bids[0].price));
+      if(aEl) aEl.textContent=fmt(parseFloat(ob.asks[0].price));
+    });
+  });
+}
+
+// ════════════════════════════════════════════════
+// SIDEBAR
+// ════════════════════════════════════════════════
+function buildSidebar() {
+  // 코인 거래소
+  const list=$('exch-list'); list.innerHTML='';
+  EXCH_ORDER.forEach(exchId=>{
+    const exch=EXCH_DEF[exchId];
+    const btn=document.createElement('button'); btn.className='exch-btn'; btn.id='ebtn-'+exchId;
+    btn.innerHTML=
+      `<div class="exch-logo-wrap">${exchLogoSVG(exch)}</div>`+
+      `<div><div class="exch-nm">${exch.label}</div><div class="exch-sb">${exch.sub}</div></div>`+
+      `<span class="exch-dot connecting" id="edot-${exchId}"></span>`;
+    btn.addEventListener('click', ()=>switchTo(exchId));
+    list.appendChild(btn);
+  });
+
+  // 달러선물
+  const fList=$('futures-list'); fList.innerHTML='';
+  const btn=document.createElement('button'); btn.className='exch-btn'; btn.id='ebtn-futures';
+  btn.innerHTML=
+    `<div class="exch-logo-wrap">${futuresIconSVG()}</div>`+
+    `<div><div class="exch-nm">달러선물</div><div class="exch-sb">KRX USD/KRW</div></div>`+
+    `<span class="exch-dot" id="edot-futures"></span>`;
+  btn.addEventListener('click', ()=>switchTo('futures'));
+  fList.appendChild(btn);
+
+  refreshSidebarActive();
+}
+
+function refreshSidebarActive() {
+  document.querySelectorAll('.exch-btn').forEach(b=>b.classList.remove('active'));
+  const activeId=currentMode==='futures'?'futures':currentExchange;
+  const btn=$('ebtn-'+activeId); if(btn) btn.classList.add('active');
+}
+
+function setStatus(exchId, s) {
+  STATUS[exchId]=s;
+  const dot=$('edot-'+exchId); if(dot) dot.className='exch-dot '+s;
+  if(exchId===currentExchange && currentMode==='crypto'){
+    $('main-dot').className='dot '+s;
+    $('main-lbl').textContent={live:'실시간',connecting:'연결 중...',error:'오류',disconnected:'연결 끊김'}[s]||s;
+  }
+}
+
+// ════════════════════════════════════════════════
+// MODE SWITCHING
+// ════════════════════════════════════════════════
+function showCryptoMode() {
+  $('ob-tabs').style.display='';
+  $('ob-grid').style.display='';
+  $('futures-panel').style.display='none';
+  $('main-status').style.display='';
+  $('main-sub').textContent='KRW Market · USDC / USDT';
+}
+function showFuturesMode() {
+  $('ob-tabs').style.display='none';
+  $('ob-grid').style.display='none';
+  $('futures-panel').style.display='';
+  $('main-status').style.display='none';
+  $('main-title').textContent='달러선물';
+  $('main-sub').textContent='KRX USD/KRW 선물';
+}
+
+function switchTo(id) {
+  if(id==='futures'){
+    if(currentMode==='futures') return;
+    currentMode='futures';
+    showFuturesMode();
+    refreshSidebarActive();
+    startFutures();
+    return;
+  }
+  // 코인 거래소
+  const prevMode=currentMode;
+  if(prevMode==='futures') stopFutures();
+  currentMode='crypto';
+  currentExchange=id;
+  showCryptoMode();
+  refreshSidebarActive();
+  $('main-title').textContent=EXCH_DEF[id].label;
+  const s=STATUS[id];
+  $('main-dot').className='dot '+s;
+  $('main-lbl').textContent={live:'실시간',connecting:'연결 중...',error:'오류',disconnected:'연결 끊김'}[s]||s;
+  renderCards();
+}
+
+// ════════════════════════════════════════════════
+// COIN OB TABS
+// ════════════════════════════════════════════════
+function applyTab(tab) {
+  currentTab=tab;
+  document.querySelectorAll('.ob-tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  const cUSdc=$('card-USDC'), cUSdt=$('card-USDT'), grid=$('ob-grid');
+  const isMob=window.innerWidth<=700;
+  if(tab==='both'){
+    cUSdc.style.display=''; cUSdt.style.display='';
+    if(isMob) grid.classList.add('mob-both'); else grid.classList.remove('mob-both');
+  } else if(tab==='USDC'){
+    cUSdc.style.display=''; cUSdt.style.display='none';
+    grid.classList.remove('mob-both');
+  } else {
+    cUSdc.style.display='none'; cUSdt.style.display='';
+    grid.classList.remove('mob-both');
+  }
+}
+window.addEventListener('resize', ()=>{ if(currentTab==='both') applyTab('both'); });
+
+// ════════════════════════════════════════════════
+// CARD STRUCTURE
+// ════════════════════════════════════════════════
+function buildCards() {
+  ['USDC','USDT'].forEach(coinId=>{
+    const card=$('card-'+coinId);
+    card.innerHTML=
+      `<div class="ob-chdr">`+
+        `<div class="ob-cico">${coinIconSVG(coinId,26)}</div>`+
+        `<div><div class="ob-cname">${coinId} / KRW</div><div class="ob-csub">${COIN_DEF[coinId].sub}</div></div>`+
+      `</div>`+
+      `<div class="sec-hdr"><span class="sh-l">매도가 (KRW)</span><span class="sh-r">거래금액 (KRW)</span></div>`+
+      `<div class="ob-asks" id="asks-${coinId}"></div>`+
+      `<div class="ob-mid" id="mid-${coinId}">`+
+        `<div class="mid-row1">`+
+          `<span class="mid-lbl">최근 체결</span>`+
+          `<span class="mid-price" id="midprc-${coinId}">—</span>`+
+        `</div>`+
+        `<div class="mid-vol" id="midvol-${coinId}">24H —</div>`+
+      `</div>`+
+      `<div class="sec-hdr"><span class="sh-l">매수가 (KRW)</span><span class="sh-r">거래금액 (KRW)</span></div>`+
+      `<div class="ob-bids" id="bids-${coinId}"></div>`;
+  });
+}
+
+// ════════════════════════════════════════════════
+// RENDER COIN CARD
+// ════════════════════════════════════════════════
+function renderCard(coinId) {
+  const ob=OB[currentExchange][coinId];
+  const lp=LAST_PRICE[currentExchange][coinId];
+  const v24=VOL24[currentExchange][coinId];
+  const midEl=$('midprc-'+coinId);
+  if(midEl){
+    if(lp!==null) midEl.textContent=fmt(lp);
+    else if(ob&&ob.bids.length&&ob.asks.length)
+      midEl.textContent='≈ '+fmt(Math.round((parseFloat(ob.bids[0].price)+parseFloat(ob.asks[0].price))/2*10)/10);
+  }
+  const volEl=$('midvol-'+coinId);
+  if(volEl&&v24!==null) volEl.textContent='24H '+fmtAmt(v24)+' '+coinId;
+  if(!ob||(!ob.bids.length&&!ob.asks.length)) return;
+  const asks5=ob.asks.slice(0,ASK_ROWS), bids5=ob.bids.slice(0,BID_ROWS);
+  const allAmts=[...asks5.map(a=>parseFloat(a.price)*parseFloat(a.qty??a.size??a.quantity??0)),
+                 ...bids5.map(b=>parseFloat(b.price)*parseFloat(b.qty??b.size??b.quantity??0))].filter(v=>v>0);
+  const maxAmt=allAmts.length?Math.max(...allAmts):1;
+  const asksEl=$('asks-'+coinId); asksEl.innerHTML='';
+  [...asks5].reverse().forEach(ask=>{
+    const price=parseFloat(ask.price), qty=parseFloat(ask.qty??ask.size??ask.quantity??0), amt=price*qty;
+    const pct=amt>0?Math.min((amt/maxAmt)*85,85):0;
+    const row=document.createElement('div'); row.className='ob-row'; row.dataset.price=price;
+    row.innerHTML=`<div class="dbar" style="width:${pct}%"></div><span class="rprc">${fmt(price)}</span><span class="ramt">${fmtAmt(amt)}</span>`;
+    asksEl.appendChild(row);
+  });
+  const bidsEl=$('bids-'+coinId); bidsEl.innerHTML='';
+  bids5.forEach(bid=>{
+    const price=parseFloat(bid.price), qty=parseFloat(bid.qty??bid.size??bid.quantity??0), amt=price*qty;
+    const pct=amt>0?Math.min((amt/maxAmt)*85,85):0;
+    const row=document.createElement('div'); row.className='ob-row'; row.dataset.price=price;
+    row.innerHTML=`<div class="dbar" style="width:${pct}%"></div><span class="rprc">${fmt(price)}</span><span class="ramt">${fmtAmt(amt)}</span>`;
+    bidsEl.appendChild(row);
+  });
+  if(lp!==null){
+    let best=null, bestDiff=Infinity;
+    document.querySelectorAll(`#asks-${coinId} .ob-row, #bids-${coinId} .ob-row`).forEach(r=>{
+      const diff=Math.abs(parseFloat(r.dataset.price)-lp);
+      if(diff<bestDiff){bestDiff=diff;best=r;}
+    });
+    if(best) best.classList.add('cur-price');
+  }
+}
+function renderCards(){ renderCard('USDC'); renderCard('USDT'); }
+
+// ════════════════════════════════════════════════
+// UPBIT WEBSOCKET
+// ════════════════════════════════════════════════
+function connectUpbit() {
+  setStatus('upbit','connecting');
+  const ws=WS_MAP.upbit=new WebSocket(EXCH_DEF.upbit.wsUrl);
+  ws.binaryType='arraybuffer';
+  ws.onopen=()=>{
+    if(WS_MAP.upbit!==ws)return;
+    RETRY.upbit=1500; setStatus('upbit','live');
+    ws.send(JSON.stringify([{ticket:'ob-'+Date.now()},{type:'orderbook',codes:['KRW-USDT','KRW-USDC']},{type:'ticker',codes:['KRW-USDT','KRW-USDC']}]));
+  };
+  ws.onmessage=ev=>{
+    try{
+      let r=ev.data;
+      if(r instanceof ArrayBuffer) r=new TextDecoder().decode(r);
+      else if(r instanceof Blob){r.text().then(handleUpbit);return;}
+      handleUpbit(r);
+    }catch(e){console.error('upbit',e);}
+  };
+  ws.onerror=()=>setStatus('upbit','error');
+  ws.onclose=()=>{
+    if(WS_MAP.upbit!==ws)return;
+    clearInterval(PTIMER.upbit); setStatus('upbit','disconnected');
+    RTIMER.upbit=setTimeout(()=>{RETRY.upbit=Math.min(RETRY.upbit*1.5,30000);connectUpbit();},RETRY.upbit);
+  };
+}
+function handleUpbit(raw) {
+  const d=JSON.parse(raw), coinId=(d.code||'').replace('KRW-','');
+  if(!COIN_DEF[coinId])return;
+  if(d.type==='orderbook'){
+    const units=d.orderbook_units||[];
+    OB.upbit[coinId]={
+      bids:units.map(u=>({price:String(u.bid_price),qty:String(u.bid_size)})),
+      asks:units.map(u=>({price:String(u.ask_price),qty:String(u.ask_size)}))
+    };
+    updateSummary(); if(currentExchange==='upbit'&&currentMode==='crypto')renderCard(coinId);
+  } else if(d.type==='ticker'){
+    LAST_PRICE.upbit[coinId]=d.trade_price;
+    if(d.acc_trade_volume_24h!=null) VOL24.upbit[coinId]=d.acc_trade_volume_24h;
+    if(currentExchange==='upbit'&&currentMode==='crypto')renderCard(coinId);
+  }
+}
+
+// ════════════════════════════════════════════════
+// BITHUMB — REST POLLING
+// ════════════════════════════════════════════════
+async function pollBithumb() {
+  let ok=false;
+  for(const coinId of ['USDT','USDC']){
+    try{
+      const [obRes,tkRes]=await Promise.all([
+        fetch(`https://api.bithumb.com/public/orderbook/${coinId}_KRW?count=20`),
+        fetch(`https://api.bithumb.com/public/ticker/${coinId}_KRW`)
+      ]);
+      const obData=await obRes.json(), tkData=await tkRes.json();
+      if(obData.status==='0000'&&obData.data){
+        const raw=obData.data;
+        const bids=(raw.bids||[]).map(b=>({price:b.price,qty:b.quantity})).sort((a,b)=>parseFloat(b.price)-parseFloat(a.price));
+        const asks=(raw.asks||[]).map(a=>({price:a.price,qty:a.quantity})).sort((a,b)=>parseFloat(a.price)-parseFloat(b.price));
+        OB.bithumb[coinId]={bids,asks}; ok=true;
+        updateSummary(); if(currentExchange==='bithumb'&&currentMode==='crypto')renderCard(coinId);
+      }
+      if(tkData.status==='0000'&&tkData.data){
+        const lp=parseFloat(tkData.data.closing_price);
+        if(!isNaN(lp)) LAST_PRICE.bithumb[coinId]=lp;
+        const v24=parseFloat(tkData.data.units_traded_24H||'0');
+        if(v24>0) VOL24.bithumb[coinId]=v24;
+        if(currentExchange==='bithumb'&&currentMode==='crypto')renderCard(coinId);
+      }
+    }catch(e){console.error('bithumb',coinId,e);}
+  }
+  setStatus('bithumb',ok?'live':'error');
+}
+function startBithumb(){ setStatus('bithumb','connecting'); pollBithumb(); bithumbTimer=setInterval(pollBithumb,2500); }
+
+// ════════════════════════════════════════════════
+// COINONE WEBSOCKET
+// ════════════════════════════════════════════════
+function connectCoinone() {
+  setStatus('coinone','connecting');
+  const ws=WS_MAP.coinone=new WebSocket(EXCH_DEF.coinone.wsUrl);
+  ws.onopen=()=>{
+    if(WS_MAP.coinone!==ws)return;
+    RETRY.coinone=1500; setStatus('coinone','live');
+    ['USDT','USDC'].forEach(coinId=>{
+      ['ORDERBOOK','TICKER'].forEach(ch=>{
+        ws.send(JSON.stringify({request_type:'SUBSCRIBE',channel:ch,format:'DEFAULT',topic:{quote_currency:'KRW',target_currency:coinId}}));
+      });
+    });
+    clearInterval(PTIMER.coinone);
+    PTIMER.coinone=setInterval(()=>{ if(ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({request_type:'PING'})); },25*60*1000);
+  };
+  ws.onmessage=async ev=>{
+    try{
+      let r=ev.data instanceof Blob?await ev.data.text():ev.data instanceof ArrayBuffer?new TextDecoder().decode(ev.data):ev.data;
+      handleCoinone(r);
+    }catch(e){console.error('coinone',e);}
+  };
+  ws.onerror=()=>setStatus('coinone','error');
+  ws.onclose=()=>{
+    if(WS_MAP.coinone!==ws)return;
+    clearInterval(PTIMER.coinone); setStatus('coinone','disconnected');
+    RTIMER.coinone=setTimeout(()=>{RETRY.coinone=Math.min(RETRY.coinone*1.5,30000);connectCoinone();},RETRY.coinone);
+  };
+}
+function handleCoinone(raw) {
+  const d=JSON.parse(raw);
+  if(d.response_type!=='DATA')return;
+  const coinId=d.data?.target_currency;
+  if(!coinId||!COIN_DEF[coinId])return;
+  if(d.channel==='ORDERBOOK'){
+    const{bids,asks}=d.data; if(!bids||!asks)return;
+    OB.coinone[coinId]={bids,asks:[...asks].reverse()};
+    updateSummary(); if(currentExchange==='coinone'&&currentMode==='crypto')renderCard(coinId);
+  } else if(d.channel==='TICKER'){
+    const lp=parseFloat(d.data.last);
+    if(!isNaN(lp)) LAST_PRICE.coinone[coinId]=lp;
+    const v24=parseFloat(d.data.volume||d.data.target_volume||'0');
+    if(v24>0) VOL24.coinone[coinId]=v24;
+    if(currentExchange==='coinone'&&currentMode==='crypto')renderCard(coinId);
+  }
+}
+
+// ════════════════════════════════════════════════
+// 달러선물 — 시장 세션
+// ════════════════════════════════════════════════
+function getSessionInfo() {
+  const now=new Date();
+  const day=now.getDay(), t=now.getHours()*60+now.getMinutes();
+  const D_S=8*60+45, D_E=15*60+45, N_S=18*60, N_E=6*60;
+  const isWeekday=day>=1&&day<=5;
+  const nightOpen=(t>=N_S&&isWeekday)||(t<N_E&&day>=2&&day<=6);
+  let session, icon, label, closed=false;
+  if(isWeekday&&t>=D_S&&t<D_E){     session='day';           icon='☀️'; label='주간';     }
+  else if(isWeekday&&t>=D_E&&t<N_S){session='day-closed';    icon='☀️'; label='주간 마감'; closed=true;}
+  else if(nightOpen){                session='night';          icon='🌙'; label='야간';     }
+  else{                              session='night-closed';   icon='🌙'; label='야간 마감'; closed=true;}
+  return{session,icon,label,closed};
+}
+
+function updateSessionBadge(session) {
+  const info=getSessionInfo();
+  const badge=$('futures-session-badge');
+  if(!badge)return;
+  badge.className='session-badge '+(info.session.startsWith('night')?'session-night':'session-day');
+  badge.innerHTML=`${info.icon} ${info.label}${info.closed?` <span class="session-closed-badge">CLOSED</span>`:''}`;
+}
+
+// ════════════════════════════════════════════════
+// 달러선물 — 호가 렌더링
+// ════════════════════════════════════════════════
+function renderFutures(iscd, session, output) {
+  $('futures-error').style.display='none';
+  $('futures-iscd-label').textContent=iscd;
+  updateSessionBadge(session);
+
+  // 만기월 표시 (종목코드에서 추출)
+  if(iscd && iscd.length>=5){
+    const yc=parseInt(iscd[3],10);
+    const mc=iscd.charCodeAt(4)-64; // A=1, ..., L=12
+    const yr=2020+yc+(yc<((new Date().getFullYear()-2020+5)%10)?10:0);
+    // 더 간단하게: 현재 연도 기준
+    const actualYr=Math.floor(new Date().getFullYear()/10)*10+yc;
+    $('futures-expiry').textContent=`만기 ${actualYr}년 ${mc}월`;
+  }
+
+  if(!output){
+    $('futures-status').textContent='데이터 없음';
+    return;
+  }
+
+  const rt=output.rt_cd||output.RT_CD;
+  if(rt&&rt!=='0'){
+    const errEl=$('futures-error');
+    errEl.style.display='';
+    errEl.innerHTML=`<b>API 오류 (rt_cd: ${rt})</b><br>${output.msg1||output.MSG1||JSON.stringify(output)}`;
+    $('futures-status').textContent='오류';
+    return;
+  }
+
+  const out=output.output||output;
+  const n=5, asks=[], bids=[];
+  for(let i=1;i<=n;i++){
+    const ap=parseFloat(out[`ASKP${i}`]||0), ar=parseInt(out[`ASKP_RSQN${i}`]||0);
+    const bp=parseFloat(out[`BIDP${i}`]||0), br=parseInt(out[`BIDP_RSQN${i}`]||0);
+    if(ap>0) asks.push({price:ap,qty:ar});
+    if(bp>0) bids.push({price:bp,qty:br});
+  }
+
+  const cur=parseFloat(out.STCK_PRPR||out.LAST||out.stck_prpr||0);
+  const diff=parseFloat(out.PRDY_VRSS||out.prdy_vrss||0);
+  const diffPct=parseFloat(out.PRDY_CTRT||out.prdy_ctrt||0);
+  const maxQty=Math.max(...asks.map(a=>a.qty),...bids.map(b=>b.qty),1);
+
+  // 매도호가 (높은가격→낮은가격 순, 낮은가격이 최우선)
+  const asksEl=$('futures-asks'); asksEl.innerHTML='';
+  [...asks].reverse().forEach(a=>{
+    const pct=Math.min((a.qty/maxQty)*80,80);
+    const row=document.createElement('div'); row.className='ob-row';
+    row.innerHTML=`<div class="dbar" style="width:${pct}%"></div><span class="rprc">${fmtFP(a.price)}</span><span class="ramt">${a.qty.toLocaleString()}</span>`;
+    asksEl.appendChild(row);
+  });
+
+  // 현재가
+  if(cur>0){
+    $('futures-price').textContent=fmtFP(cur);
+    const diffColor=diff>=0?'var(--bid)':'var(--ask)';
+    const sign=diff>=0?'+':'';
+    $('futures-price').style.color=diffColor;
+    $('futures-diff').innerHTML=`<span style="color:${diffColor}">${sign}${fmtFP(diff)} (${sign}${diffPct.toFixed(2)}%)</span>`;
+  } else {
+    $('futures-price').textContent='—';
+    $('futures-diff').textContent='';
+  }
+
+  // 매수호가 (높은가격→낮은가격)
+  const bidsEl=$('futures-bids'); bidsEl.innerHTML='';
+  bids.forEach(b=>{
+    const pct=Math.min((b.qty/maxQty)*80,80);
+    const row=document.createElement('div'); row.className='ob-row';
+    row.innerHTML=`<div class="dbar" style="width:${pct}%"></div><span class="rprc">${fmtFP(b.price)}</span><span class="ramt">${b.qty.toLocaleString()}</span>`;
+    bidsEl.appendChild(row);
+  });
+
+  $('futures-status').textContent='';
+  $('edot-futures').className='exch-dot live';
+
+  // 세션 주기적 업데이트
+  updateSessionBadge(session);
+}
+
+// ════════════════════════════════════════════════
+// 달러선물 — POLLING
+// ════════════════════════════════════════════════
+async function pollFutures() {
+  try{
+    const r=await fetch('/api/kis-futures');
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const{iscd,session,data}=await r.json();
+    renderFutures(iscd, session, data);
+  }catch(e){
+    console.error('futures poll',e);
+    const errEl=$('futures-error');
+    errEl.style.display='';
+    errEl.textContent='API 연결 오류: '+e.message;
+    $('edot-futures').className='exch-dot error';
+    $('futures-status').textContent='오류';
+  }
+}
+function startFutures(){
+  $('edot-futures').className='exch-dot connecting';
+  $('futures-status').textContent='조회 중...';
+  $('futures-icon').innerHTML=futuresIconSVG();
+  pollFutures();
+  futuresTimer=setInterval(pollFutures,3000);
+  // 세션 뱃지는 1분마다 갱신
+  setInterval(()=>{ if(currentMode==='futures') updateSessionBadge(getSessionInfo().session); },60000);
+}
+function stopFutures(){
+  if(futuresTimer){ clearInterval(futuresTimer); futuresTimer=null; }
+  $('edot-futures').className='exch-dot';
+}
+
+// ════════════════════════════════════════════════
+// VISIBILITY RECONNECT
+// ════════════════════════════════════════════════
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden)return;
+  ['coinone','upbit'].forEach(id=>{
+    if(!WS_MAP[id]||WS_MAP[id].readyState===WebSocket.CLOSED){
+      clearTimeout(RTIMER[id]); RETRY[id]=1500;
+      if(id==='coinone') connectCoinone(); else connectUpbit();
+    }
+  });
+  if(currentMode==='futures'&&!futuresTimer) startFutures();
+});
+
+// ════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════
+buildSummary();
+buildSidebar();
+buildCards();
+connectCoinone();
+connectUpbit();
+startBithumb();
+// 초기 탭 상태 적용
+applyTab('both');
+// 코인원 초기 active
+const firstBtn=$('ebtn-coinone'); if(firstBtn) firstBtn.classList.add('active');
+</script>
+</body>
+</html>
