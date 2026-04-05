@@ -929,50 +929,67 @@ function updateSessionBadge(session) {
 // ════════════════════════════════════════════════
 // 달러선물 — 호가 렌더링
 // ════════════════════════════════════════════════
-function renderFutures(iscd, session, output) {
+function renderFutures(iscd, session, data) {
   $('futures-error').style.display='none';
   $('futures-iscd-label').textContent=iscd;
   updateSessionBadge(session);
 
-  // 만기월 표시 (종목코드에서 추출)
+  // 만기월 표시
   if(iscd && iscd.length>=5){
     const yc=parseInt(iscd[3],10);
-    const mc=iscd.charCodeAt(4)-64; // A=1, ..., L=12
-    const yr=2020+yc+(yc<((new Date().getFullYear()-2020+5)%10)?10:0);
-    // 더 간단하게: 현재 연도 기준
+    const mc=iscd.charCodeAt(4)-64;
     const actualYr=Math.floor(new Date().getFullYear()/10)*10+yc;
     $('futures-expiry').textContent=`만기 ${actualYr}년 ${mc}월`;
   }
 
-  if(!output){
+  if(!data){
     $('futures-status').textContent='데이터 없음';
     return;
   }
 
-  const rt=output.rt_cd||output.RT_CD;
-  if(rt&&rt!=='0'){
+  const rt=data.rt_cd;
+  if(rt && rt!=='0'){
     const errEl=$('futures-error');
     errEl.style.display='';
-    errEl.innerHTML=`<b>API 오류 (rt_cd: ${rt})</b><br>${output.msg1||output.MSG1||JSON.stringify(output)}`;
+    errEl.innerHTML=`<b>API 오류 (rt_cd: ${rt})</b><br>${data.msg1||JSON.stringify(data)}`;
     $('futures-status').textContent='오류';
     return;
   }
 
-  const out=output.output||output;
+  // KIS inquire-asking-price 응답: output1(호가), output2(현재가 요약)
+  // output1, output2 가 모두 비어있으면 장 마감 상태
+  const out1 = data.output1 || {};
+  const out2 = data.output2 || {};
+
+  const isClosed = session.includes('closed');
+  const isEmpty  = !out1.ASKP1 && !out2.STCK_PRPR;
+
+  if(isEmpty){
+    $('futures-asks').innerHTML='';
+    $('futures-bids').innerHTML='';
+    $('futures-price').textContent='—';
+    $('futures-price').style.color='';
+    $('futures-diff').textContent='';
+    $('futures-subinfo').textContent = isClosed ? '장 마감 — 다음 세션에 호가가 표시됩니다' : '호가 데이터 없음';
+    $('edot-futures').className='exch-dot connecting';
+    return;
+  }
+
   const n=5, asks=[], bids=[];
   for(let i=1;i<=n;i++){
-    const ap=parseFloat(out[`ASKP${i}`]||0), ar=parseInt(out[`ASKP_RSQN${i}`]||0);
-    const bp=parseFloat(out[`BIDP${i}`]||0), br=parseInt(out[`BIDP_RSQN${i}`]||0);
+    const ap=parseFloat(out1[`ASKP${i}`]||0), ar=parseInt(out1[`ASKP_RSQN${i}`]||0);
+    const bp=parseFloat(out1[`BIDP${i}`]||0), br=parseInt(out1[`BIDP_RSQN${i}`]||0);
     if(ap>0) asks.push({price:ap,qty:ar});
     if(bp>0) bids.push({price:bp,qty:br});
   }
 
-  const cur=parseFloat(out.STCK_PRPR||out.LAST||out.stck_prpr||0);
-  const diff=parseFloat(out.PRDY_VRSS||out.prdy_vrss||0);
-  const diffPct=parseFloat(out.PRDY_CTRT||out.prdy_ctrt||0);
-  const maxQty=Math.max(...asks.map(a=>a.qty),...bids.map(b=>b.qty),1);
+  // 현재가는 output2 우선, 없으면 output1
+  const cur     = parseFloat(out2.STCK_PRPR||out1.STCK_PRPR||out2.LAST||0);
+  const diff    = parseFloat(out2.PRDY_VRSS||out1.PRDY_VRSS||0);
+  const diffPct = parseFloat(out2.PRDY_CTRT||out1.PRDY_CTRT||0);
+  const maxQty  = Math.max(...asks.map(a=>a.qty), ...bids.map(b=>b.qty), 1);
 
-  // 매도호가 (높은가격→낮은가격 순, 낮은가격이 최우선)
+  // 매도호가 (높은→낮은 순)
   const asksEl=$('futures-asks'); asksEl.innerHTML='';
   [...asks].reverse().forEach(a=>{
     const pct=Math.min((a.qty/maxQty)*80,80);
@@ -988,12 +1005,13 @@ function renderFutures(iscd, session, output) {
     const sign=diff>=0?'+':'';
     $('futures-price').style.color=diffColor;
     $('futures-diff').innerHTML=`<span style="color:${diffColor}">${sign}${fmtFP(diff)} (${sign}${diffPct.toFixed(2)}%)</span>`;
+    $('futures-subinfo').textContent='';
   } else {
     $('futures-price').textContent='—';
     $('futures-diff').textContent='';
   }
 
-  // 매수호가 (높은가격→낮은가격)
+  // 매수호가
   const bidsEl=$('futures-bids'); bidsEl.innerHTML='';
   bids.forEach(b=>{
     const pct=Math.min((b.qty/maxQty)*80,80);
