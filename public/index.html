@@ -320,9 +320,8 @@ body {
   .brand { display:none; }
   .sb-sec { display:none; }
   .sb-divider { display:none; }
-  .exch-list { flex-direction:row; padding:0 8px 8px; gap:6px; overflow-x:auto; scrollbar-width:none; }
-  .exch-list::-webkit-scrollbar { display:none; }
-  .exch-btn  { padding:6px 11px; border-radius:999px; flex-shrink:0; white-space:nowrap; }
+  .exch-list { flex-direction:row; flex-wrap:wrap; padding:0 8px 8px; gap:5px; overflow-x:hidden; }
+  .exch-btn  { padding:5px 10px; border-radius:999px; flex-shrink:1; white-space:nowrap; }
   .exch-sb   { display:none; }
   .exch-dot  { display:none; }
   .main { padding:10px 10px 30px; }
@@ -929,7 +928,7 @@ function updateSessionBadge(session) {
 // ════════════════════════════════════════════════
 // 달러선물 — 호가 렌더링
 // ════════════════════════════════════════════════
-function renderFutures(iscd, session, data) {
+function renderFutures(iscd, session, data, priceResp) {
   $('futures-error').style.display='none';
   $('futures-iscd-label').textContent=iscd;
   updateSessionBadge(session);
@@ -967,11 +966,24 @@ function renderFutures(iscd, session, data) {
   if(isEmpty){
     $('futures-asks').innerHTML='';
     $('futures-bids').innerHTML='';
-    $('futures-price').textContent='—';
-    $('futures-price').style.color='';
-    $('futures-diff').textContent='';
-    $('futures-subinfo').textContent = isClosed ? '장 마감 — 다음 세션에 호가가 표시됩니다' : '호가 데이터 없음';
-    $('edot-futures').className='exch-dot connecting';
+    // 종가 표시: inquire-price 응답에서 가져옴
+    const pr = priceResp && priceResp.output ? priceResp.output : null;
+    const closePrc  = parseFloat(pr?.STCK_PRPR||pr?.CLPR||0);
+    const closeDiff = parseFloat(pr?.PRDY_VRSS||0);
+    const closePct  = parseFloat(pr?.PRDY_CTRT||0);
+    if(closePrc>0){
+      $('futures-price').textContent=fmtFP(closePrc);
+      const dc=closeDiff>=0?'var(--bid)':'var(--ask)', sg=closeDiff>=0?'+':'';
+      $('futures-price').style.color=dc;
+      $('futures-diff').innerHTML=`<span style="color:${dc}">${sg}${fmtFP(closeDiff)} (${sg}${closePct.toFixed(2)}%)</span>`;
+      $('futures-subinfo').textContent=isClosed?'장 마감 (종가)':'';
+    } else {
+      $('futures-price').textContent='—';
+      $('futures-price').style.color='';
+      $('futures-diff').textContent='';
+      $('futures-subinfo').textContent=isClosed?'장 마감':'호가 데이터 없음';
+    }
+    $('edot-futures').className='exch-dot '+(closePrc>0?'live':'connecting');
     return;
   }
 
@@ -1034,8 +1046,8 @@ async function pollFutures() {
   try{
     const r=await fetch('/api/kis-futures');
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
-    const{iscd,session,data}=await r.json();
-    renderFutures(iscd, session, data);
+    const{iscd,session,data,price}=await r.json();
+    renderFutures(iscd, session, data, price);
   }catch(e){
     console.error('futures poll',e);
     const errEl=$('futures-error');

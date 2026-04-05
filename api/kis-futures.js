@@ -93,30 +93,37 @@ module.exports = async function handler(req, res) {
 
   try {
     const token = await getToken();
-    const obUrl = `${kisBase()}/uapi/domestic-futureoption/v1/quotations/inquire-asking-price` +
-      `?FID_COND_MRKT_DIV_CODE=${mktDiv}&FID_INPUT_ISCD=${iscd}`;
+    const headers = {
+      'content-type': 'application/json; charset=utf-8',
+      authorization: `Bearer ${token}`,
+      appkey:    process.env.KIS_APP_KEY,
+      appsecret: process.env.KIS_APP_SECRET,
+      custtype:  'P'
+    };
 
-    const r = await fetch(obUrl, {
-      headers: {
-        'content-type': 'application/json; charset=utf-8',
-        authorization: `Bearer ${token}`,
-        appkey:  process.env.KIS_APP_KEY,
-        appsecret: process.env.KIS_APP_SECRET,
-        tr_id:   trId,
-        custtype: 'P'
-      }
-    });
+    // ① 호가 조회
+    const obRes  = await fetch(
+      `${kisBase()}/uapi/domestic-futureoption/v1/quotations/inquire-asking-price` +
+      `?FID_COND_MRKT_DIV_CODE=${mktDiv}&FID_INPUT_ISCD=${iscd}`,
+      { headers: { ...headers, tr_id: trId } }
+    );
+    const obText = await obRes.text();
+    let obData;
+    try { obData = JSON.parse(obText); }
+    catch { return res.status(500).json({ error: `호가 파싱 실패 (HTTP ${obRes.status})`, raw: obText.slice(0,300) }); }
 
-    const raw = await r.text();
-    let data;
-    try { data = JSON.parse(raw); }
-    catch {
-      return res.status(500).json({
-        error: `응답 파싱 실패 (HTTP ${r.status})`,
-        raw: raw.slice(0, 500), iscd, trId, mktDiv
-      });
-    }
-    return res.json({ iscd, session, trId, mktDiv, data });
+    // ② 현재가(종가) 조회 — 장 마감 시에도 종가 표시용
+    // 주간 tr_id 사용 (마감 포함)
+    const prRes  = await fetch(
+      `${kisBase()}/uapi/domestic-futureoption/v1/quotations/inquire-price` +
+      `?FID_COND_MRKT_DIV_CODE=F&FID_INPUT_ISCD=${iscd}`,
+      { headers: { ...headers, tr_id: 'FHMIF10000000' } }
+    );
+    const prText = await prRes.text();
+    let prData;
+    try { prData = JSON.parse(prText); } catch { prData = null; }
+
+    return res.json({ iscd, session, trId, mktDiv, data: obData, price: prData });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
