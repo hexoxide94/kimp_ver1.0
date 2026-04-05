@@ -24,6 +24,13 @@ async function getToken() {
   const rawText = await r.text();
   let d;
   try { d = JSON.parse(rawText); } catch { throw new Error(`토큰 응답 파싱 실패 (HTTP ${r.status}): ${rawText.slice(0,300)}`); }
+
+  // 1분 1회 제한 초과 시: 캐시된 토큰이 있으면 만료돼도 재사용, 없으면 안내
+  if (d.error_code === 'EGW00133') {
+    if (tokenCache.token) return tokenCache.token; // 만료 토큰이라도 임시 재사용
+    throw new Error('KIS 토큰 발급 한도 초과 (1분 1회). 잠시 후 자동으로 재시도됩니다.');
+  }
+
   if (!d.access_token) throw new Error(`토큰 발급 실패 (HTTP ${r.status}): ${JSON.stringify(d)}`);
   const ttl = parseInt(d.expires_in || '86400', 10);
   tokenCache = { token: d.access_token, exp: now + (ttl - 300) * 1000 };
