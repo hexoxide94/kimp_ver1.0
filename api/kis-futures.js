@@ -38,30 +38,30 @@ async function getToken() {
 
 // KRX 달러선물 현재월물 종목코드: 175 + 연도끝자리 + 월코드(A=1..L=12) + 000
 function getUsdFuturesCode() {
-  const now = new Date();
-  let y = now.getFullYear(), m = now.getMonth() + 1;
+  const now = new Date(Date.now() + 9 * 60 * 60 * 1000); // UTC → KST
+  let y = now.getUTCFullYear(), m = now.getUTCMonth() + 1;
 
   function thirdTuesday(yr, mo) {
-    const d = new Date(yr, mo - 1, 1);
+    const d = new Date(Date.UTC(yr, mo - 1, 1));
     let cnt = 0;
     while (cnt < 3) {
-      if (d.getDay() === 2) cnt++;
-      if (cnt < 3) d.setDate(d.getDate() + 1);
+      if (d.getUTCDay() === 2) cnt++;
+      if (cnt < 3) d.setUTCDate(d.getUTCDate() + 1);
     }
-    d.setHours(15, 45, 0, 0);
+    d.setUTCHours(6, 45, 0, 0); // KST 15:45 = UTC 06:45
     return d;
   }
 
-  if (now >= thirdTuesday(y, m)) {
+  if (now.getTime() >= thirdTuesday(y, m).getTime()) {
     m++; if (m > 12) { m = 1; y++; }
   }
   return `175${y % 10}${String.fromCharCode(64 + m)}000`;
 }
 
 function getSession() {
-  const now = new Date();
-  const day = now.getDay();
-  const t = now.getHours() * 60 + now.getMinutes();
+  const now = new Date(Date.now() + 9 * 60 * 60 * 1000); // UTC → KST
+  const day = now.getUTCDay();
+  const t = now.getUTCHours() * 60 + now.getUTCMinutes();
   const D_S = 8 * 60 + 45, D_E = 15 * 60 + 45, N_S = 18 * 60, N_E = 6 * 60;
   const isWeekday = day >= 1 && day <= 5;
   const nightOpen = (t >= N_S && isWeekday) || (t < N_E && day >= 2 && day <= 6);
