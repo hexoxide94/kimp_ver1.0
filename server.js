@@ -24,10 +24,13 @@ const server = http.createServer(async (req, res) => {
   // ── API 라우팅 ──
   if (url.pathname === '/api/kis-futures') {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    // Vercel 스타일 res 메서드 폴리필
+    res.status = (code) => { res.statusCode = code; return res; };
+    res.json   = (obj)  => { res.end(JSON.stringify(obj)); };
     try {
       await kisHandler(req, res);
     } catch (e) {
-      res.writeHead(500);
+      res.statusCode = 500;
       res.end(JSON.stringify({ error: e.message }));
     }
     return;

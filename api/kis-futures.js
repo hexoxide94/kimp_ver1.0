@@ -87,9 +87,11 @@ module.exports = async function handler(req, res) {
 
   const session = getSession();
   const iscd    = getUsdFuturesCode();
-  const isNight = session === 'night';
-  const trId    = isNight ? 'FHMIF10020000' : 'FHMIF10010000';
-  const mktDiv  = isNight ? 'NF' : 'F';
+
+  // 장 마감 구간: API 호출 없이 closed 상태만 반환
+  if (session === 'day-closed' || session === 'night-closed') {
+    return res.json({ iscd, session, closed: true });
+  }
 
   try {
     const token = await getToken();
@@ -101,20 +103,21 @@ module.exports = async function handler(req, res) {
       custtype:  'P'
     };
 
-    // ① 호가 조회
-    const obRes  = await fetch(
+    // ① 호가 조회 (주간/야간 모두 F + FHMIF10010000)
+    // 실제 API 응답 필드: futs_askp1~5, futs_bidp1~5, askp_rsqn1~5, bidp_rsqn1~5, futs_prpr 등
+    const obRes = await fetch(
       `${kisBase()}/uapi/domestic-futureoption/v1/quotations/inquire-asking-price` +
-      `?FID_COND_MRKT_DIV_CODE=${mktDiv}&FID_INPUT_ISCD=${iscd}`,
-      { headers: { ...headers, tr_id: trId } }
+      `?FID_COND_MRKT_DIV_CODE=F&FID_INPUT_ISCD=${iscd}`,
+      { headers: { ...headers, tr_id: 'FHMIF10010000' } }
     );
     const obText = await obRes.text();
     let obData;
     try { obData = JSON.parse(obText); }
-    catch { return res.status(500).json({ error: `호가 파싱 실패 (HTTP ${obRes.status})`, raw: obText.slice(0,300) }); }
+    catch { return res.status(500).json({ error: `호가 파싱 실패 (HTTP ${obRes.status})`, raw: obText.slice(0, 300) }); }
 
-    // ② 현재가(종가) 조회 — 장 마감 시에도 종가 표시용
-    // 주간 tr_id 사용 (마감 포함)
-    const prRes  = await fetch(
+    // ② 현재가 조회 (F + FHMIF10000000) — 장 마감 시 종가 표시용
+    // 실제 API 응답 필드: futs_prpr, futs_prdy_vrss, futs_prdy_ctrt 등
+    const prRes = await fetch(
       `${kisBase()}/uapi/domestic-futureoption/v1/quotations/inquire-price` +
       `?FID_COND_MRKT_DIV_CODE=F&FID_INPUT_ISCD=${iscd}`,
       { headers: { ...headers, tr_id: 'FHMIF10000000' } }
@@ -123,7 +126,7 @@ module.exports = async function handler(req, res) {
     let prData;
     try { prData = JSON.parse(prText); } catch { prData = null; }
 
-    return res.json({ iscd, session, trId, mktDiv, data: obData, price: prData });
+    return res.json({ iscd, session, closed: false, data: obData, price: prData });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }

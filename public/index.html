@@ -498,7 +498,9 @@ let bithumbTimer = null;
 let currentExchange = 'coinone';
 let currentMode     = 'crypto'; // 'crypto' | 'futures'
 let currentTab      = 'both';
-let futuresTimer    = null;
+let futuresPollTimer    = null;
+let futuresPriceState   = { price: 0, diff: 0, diffPct: 0, iscd: '' };
+let futuresSessionClosed = false;
 
 const $   = id => document.getElementById(id);
 const fmt = v  => Number(v).toLocaleString('ko-KR');
@@ -986,22 +988,21 @@ function renderFutures(iscd, session, data, priceResp) {
     return;
   }
 
-  // KIS inquire-asking-price 응답: output1(호가), output2(현재가 요약)
-  // output1, output2 가 모두 비어있으면 장 마감 상태
+  // KIS inquire-asking-price 응답 output1 실제 필드명:
+  // futs_askp1~5, futs_bidp1~5, askp_rsqn1~5, bidp_rsqn1~5, futs_prpr, futs_prdy_vrss, futs_prdy_ctrt
   const out1 = data.output1 || {};
-  const out2 = data.output2 || {};
 
   const isClosed = session.includes('closed');
-  const isEmpty  = !out1.ASKP1 && !out2.STCK_PRPR;
+  const isEmpty  = !out1.futs_askp1;
 
   if(isEmpty){
     $('futures-asks').innerHTML='';
     $('futures-bids').innerHTML='';
-    // 종가 표시: inquire-price 응답에서 가져옴
-    const pr = priceResp && priceResp.output ? priceResp.output : null;
-    const closePrc  = parseFloat(pr?.STCK_PRPR||pr?.CLPR||0);
-    const closeDiff = parseFloat(pr?.PRDY_VRSS||0);
-    const closePct  = parseFloat(pr?.PRDY_CTRT||0);
+    // 종가 표시: inquire-price 응답 output1에서 가져옴
+    const pr = priceResp && priceResp.output1 ? priceResp.output1 : null;
+    const closePrc  = parseFloat(pr?.futs_prpr||0);
+    const closeDiff = parseFloat(pr?.futs_prdy_vrss||0);
+    const closePct  = parseFloat(pr?.futs_prdy_ctrt||0);
     if(closePrc>0){
       $('futures-price').textContent=fmtFP(closePrc);
       const dc=closeDiff>=0?'var(--bid)':'var(--ask)', sg=closeDiff>=0?'+':'';
@@ -1021,16 +1022,16 @@ function renderFutures(iscd, session, data, priceResp) {
 
   const n=5, asks=[], bids=[];
   for(let i=1;i<=n;i++){
-    const ap=parseFloat(out1[`ASKP${i}`]||0), ar=parseInt(out1[`ASKP_RSQN${i}`]||0);
-    const bp=parseFloat(out1[`BIDP${i}`]||0), br=parseInt(out1[`BIDP_RSQN${i}`]||0);
+    const ap=parseFloat(out1[`futs_askp${i}`]||0), ar=parseInt(out1[`askp_rsqn${i}`]||0);
+    const bp=parseFloat(out1[`futs_bidp${i}`]||0), br=parseInt(out1[`bidp_rsqn${i}`]||0);
     if(ap>0) asks.push({price:ap,qty:ar});
     if(bp>0) bids.push({price:bp,qty:br});
   }
 
-  // 현재가는 output2 우선, 없으면 output1
-  const cur     = parseFloat(out2.STCK_PRPR||out1.STCK_PRPR||out2.LAST||0);
-  const diff    = parseFloat(out2.PRDY_VRSS||out1.PRDY_VRSS||0);
-  const diffPct = parseFloat(out2.PRDY_CTRT||out1.PRDY_CTRT||0);
+  // 현재가: output1의 futs_prpr 사용
+  const cur     = parseFloat(out1.futs_prpr||0);
+  const diff    = parseFloat(out1.futs_prdy_vrss||0);
+  const diffPct = parseFloat(out1.futs_prdy_ctrt||0);
   const maxQty  = Math.max(...asks.map(a=>a.qty), ...bids.map(b=>b.qty), 1);
 
   // 매도호가 (높은→낮은 순)
@@ -1096,29 +1097,113 @@ async function pollFutures() {
   try{
     const r=await fetch('/api/kis-futures');
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
-    const{iscd,session,data,price}=await r.json();
-    renderFutures(iscd, session, data, price);
+    const d=await r.json();
+    const{iscd,session,closed}=d;
+
+    if(closed){
+      // 장 마감: 폴링 중단, 마지막 체결가 고정 표시
+      if(futuresPollTimer){ clearInterval(futuresPollTimer); futuresPollTimer=null; }
+      futuresSessionClosed=true;
+      updateFuturesSummary(futuresPriceState.price,futuresPriceState.diff,futuresPriceState.diffPct,session);
+      if(currentMode==='futures'){
+        updateSessionBadge(session);
+        const pr=futuresPriceState.price;
+        $('futures-price').textContent=pr>0?fmtFP(pr):'—';
+        if(pr>0){
+          const dc=futuresPriceState.diff>=0?'var(--bid)':'var(--ask)',sg=futuresPriceState.diff>=0?'+':'';
+          $('futures-price').style.color=dc;
+          $('futures-diff').innerHTML=`<span style="color:${dc}">${sg}${fmtFP(futuresPriceState.diff)} (${sg}${futuresPriceState.diffPct.toFixed(2)}%)</span>`;
+        }
+        $('futures-subinfo').textContent='장 마감 (종가)';
+        $('futures-status').textContent='';
+        $('futures-error').style.display='none';
+        $('futures-asks').innerHTML=''; $('futures-bids').innerHTML='';
+        $('futures-iscd-label').textContent=iscd;
+        $('edot-futures').className='exch-dot'+(futuresPriceState.price>0?' live':'');
+      }
+      return;
+    }
+
+    futuresSessionClosed=false;
+
+    // 현재가 추출 및 저장 (inquire-price 응답 우선)
+    const prOut=(d.price&&d.price.output1)||{};
+    const obOut=(d.data&&d.data.output1)||{};
+    const cur=parseFloat(prOut.futs_prpr||obOut.futs_prpr||0);
+    const diff=parseFloat(prOut.futs_prdy_vrss||obOut.futs_prdy_vrss||0);
+    const diffPct=parseFloat(prOut.futs_prdy_ctrt||obOut.futs_prdy_ctrt||0);
+    if(cur>0) futuresPriceState={price:cur,diff,diffPct,iscd};
+
+    // 서머리바 항상 갱신 (모드와 무관하게)
+    updateFuturesSummary(futuresPriceState.price,futuresPriceState.diff,futuresPriceState.diffPct,session);
+    $('edot-futures').className='exch-dot live';
+
+    // 선물 패널이 열려 있을 때만 호가창 렌더링
+    if(currentMode==='futures') renderFutures(iscd,session,d.data,d.price);
+
   }catch(e){
     console.error('futures poll',e);
-    const errEl=$('futures-error');
-    errEl.style.display='';
-    errEl.textContent='API 연결 오류: '+e.message;
     $('edot-futures').className='exch-dot error';
-    $('futures-status').textContent='오류';
+    if(currentMode==='futures'){
+      const errEl=$('futures-error');
+      errEl.style.display='';
+      errEl.textContent='API 연결 오류: '+e.message;
+      $('futures-status').textContent='오류';
+    }
   }
 }
 function startFutures(){
-  $('edot-futures').className='exch-dot connecting';
-  $('futures-status').textContent='조회 중...';
   $('futures-icon').innerHTML=futuresIconSVG();
-  pollFutures();
-  futuresTimer=setInterval(pollFutures,3000);
-  // 세션 뱃지는 1분마다 갱신
-  setInterval(()=>{ if(currentMode==='futures') updateSessionBadge(getSessionInfo().session); },60000);
+  if(futuresSessionClosed){
+    // 장 마감 중: 마지막 체결가 표시
+    updateSessionBadge(getSessionInfo().session);
+    const pr=futuresPriceState.price;
+    $('futures-price').textContent=pr>0?fmtFP(pr):'—';
+    if(pr>0){
+      const dc=futuresPriceState.diff>=0?'var(--bid)':'var(--ask)',sg=futuresPriceState.diff>=0?'+':'';
+      $('futures-price').style.color=dc;
+      $('futures-diff').innerHTML=`<span style="color:${dc}">${sg}${fmtFP(futuresPriceState.diff)} (${sg}${futuresPriceState.diffPct.toFixed(2)}%)</span>`;
+    }
+    $('futures-subinfo').textContent='장 마감 (종가)';
+    $('futures-status').textContent='';
+    $('futures-error').style.display='none';
+    $('futures-asks').innerHTML=''; $('futures-bids').innerHTML='';
+    $('futures-iscd-label').textContent=futuresPriceState.iscd||'—';
+    $('edot-futures').className='exch-dot'+(pr>0?' live':'');
+  } else {
+    $('edot-futures').className='exch-dot connecting';
+    $('futures-status').textContent='조회 중...';
+  }
 }
 function stopFutures(){
-  if(futuresTimer){ clearInterval(futuresTimer); futuresTimer=null; }
-  $('edot-futures').className='exch-dot';
+  // 백그라운드 폴링 유지 — 사이드바 닷 상태만 갱신
+  $('edot-futures').className='exch-dot'+(futuresPollTimer&&!futuresSessionClosed?' live':'');
+}
+
+// ════════════════════════════════════════════════
+// 달러선물 — 백그라운드 폴러 (페이지 로드 시부터 항상 실행)
+// ════════════════════════════════════════════════
+function initFuturesPoller(){
+  _runFuturesPoll();
+  setInterval(_checkFuturesSession,60000); // 1분마다 세션 체크
+}
+function _runFuturesPoll(){
+  if(futuresPollTimer) return;
+  const info=getSessionInfo();
+  if(info.closed){ futuresSessionClosed=true; return; }
+  futuresSessionClosed=false;
+  pollFutures();
+  futuresPollTimer=setInterval(pollFutures,5000);
+}
+function _checkFuturesSession(){
+  const info=getSessionInfo();
+  if(!info.closed&&!futuresPollTimer){
+    // 장 재개 → 폴링 재시작
+    futuresSessionClosed=false;
+    pollFutures();
+    futuresPollTimer=setInterval(pollFutures,5000);
+  }
+  // 장 마감 시 pollFutures() 내부에서 타이머 자동 정리됨
 }
 
 // ════════════════════════════════════════════════
@@ -1132,7 +1217,7 @@ document.addEventListener('visibilitychange',()=>{
       if(id==='coinone') connectCoinone(); else connectUpbit();
     }
   });
-  if(currentMode==='futures'&&!futuresTimer) startFutures();
+  if(!futuresPollTimer&&!futuresSessionClosed) _runFuturesPoll();
 });
 
 // ════════════════════════════════════════════════
@@ -1144,6 +1229,7 @@ buildCards();
 connectCoinone();
 connectUpbit();
 startBithumb();
+initFuturesPoller();
 // 초기 탭 상태 적용
 applyTab('both');
 // 코인원 초기 active
